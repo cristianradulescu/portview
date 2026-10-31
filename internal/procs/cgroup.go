@@ -72,19 +72,29 @@ func ParseCgroupPath(path string) (Unit, Container) {
 	var c Container
 	segs := strings.Split(strings.Trim(path, "/"), "/")
 	for i, seg := range segs {
+		// The first container segment is authoritative. Whatever lies below
+		// it was created inside the container (systemd or Docker running in
+		// it), which could otherwise claim to be another container.
+		if id, rt, ok := containerFromSegment(seg, segs, i); ok {
+			c = Container{ID: id, Runtime: rt, Delegated: u.UserManager}
+		}
 		switch {
-		// Only the first user@UID.service is the manager: below it the
-		// user names cgroups freely, and a nested "user@0.service" must
-		// not redirect systemctl to another user's manager.
+		// Only the first user@UID.service is a manager: below it the user
+		// names cgroups freely, and a nested "user@0.service" must not
+		// redirect systemctl to another user's manager.
 		case !u.UserManager && strings.HasPrefix(seg, "user@") && strings.HasSuffix(seg, ".service"):
 			u.UserManager = true
 			u.User = atoiOr(strings.TrimSuffix(strings.TrimPrefix(seg, "user@"), ".service"), -1)
-			u.Name = "" // units below belong to the user manager
+			continue
 		case strings.HasSuffix(seg, ".service") || strings.HasSuffix(seg, ".scope"):
+			// systemd only places units in slices, never below another
+			// unit: the first unit is the real one. Cgroups below it were
+			// created by the unit's processes (Delegate=yes, containers)
+			// and may carry any name, such as a host service's.
 			u.Name = termsafe.String(seg)
 		}
-		if id, rt, ok := containerFromSegment(seg, segs, i); ok {
-			c = Container{ID: id, Runtime: rt, Delegated: u.UserManager}
+		if u.Name != "" || c.ID != "" {
+			break
 		}
 	}
 	if u.UserManager && u.Name == "" {

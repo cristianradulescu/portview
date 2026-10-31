@@ -208,6 +208,12 @@ published-port socket is only linked to its container when it belongs to
 root, as `docker-proxy`'s sockets do. As a result, containers of rootless
 Docker are not linked.
 
+The same rule applies below any unit or container. systemd never places a
+unit inside another, so only the outermost unit and container in a cgroup
+path count. A process inside container A that creates
+`docker-A.scope/docker-B.scope` or `docker-A.scope/nginx.service` stays
+attributed to container A, not to container B or the host's nginx.
+
 ## Privileges
 
 portview works without root. A socket's user is visible to everyone, and so

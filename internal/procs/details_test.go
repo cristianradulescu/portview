@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-const dockerID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+const (
+	dockerID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	otherID  = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+)
 
 func TestParseCgroupPath(t *testing.T) {
 	tests := []struct {
@@ -39,10 +42,24 @@ func TestParseCgroupPath(t *testing.T) {
 		// Inside a user's delegated subtree, names are chosen by the user: a
 		// nested user@0.service is just a name, not root's manager...
 		{"/user.slice/user-1000.slice/user@1000.service/app.slice/user@0.service/foo.service",
-			Unit{Name: "foo.service", UserManager: true, User: 1000}, Container{}},
+			Unit{Name: "user@0.service", UserManager: true, User: 1000}, Container{}},
 		{"/user.slice/user-1000.slice/user@1000.service/user@0.service",
 			Unit{Name: "user@0.service", UserManager: true, User: 1000}, Container{}},
-		// ...and container IDs found there are marked as delegated.
+		// Below a unit or a container, names are chosen by its processes:
+		// only the outermost unit and container count.
+		{"/system.slice/docker-" + dockerID + ".scope/docker-" + otherID + ".scope",
+			Unit{Name: "docker-" + dockerID + ".scope", User: -1}, Container{ID: dockerID, Runtime: "docker"}},
+		{"/system.slice/docker-" + dockerID + ".scope/nginx.service",
+			Unit{Name: "docker-" + dockerID + ".scope", User: -1}, Container{ID: dockerID, Runtime: "docker"}},
+		{"/system.slice/docker-" + dockerID + ".scope/init.scope/sshd.service",
+			Unit{Name: "docker-" + dockerID + ".scope", User: -1}, Container{ID: dockerID, Runtime: "docker"}},
+		{"/docker/" + dockerID + "/docker/" + otherID, Unit{User: -1}, Container{ID: dockerID, Runtime: "docker"}},
+		{"/docker/" + dockerID + "/system.slice/nginx.service", Unit{User: -1}, Container{ID: dockerID, Runtime: "docker"}},
+		{"/system.slice/ci-runner.service/docker-" + dockerID + ".scope", Unit{Name: "ci-runner.service", User: -1}, Container{}},
+		{"/system.slice/ci-runner.service/payload/postgresql.service", Unit{Name: "ci-runner.service", User: -1}, Container{}},
+		{"/machine.slice/libpod-" + dockerID + ".scope/container",
+			Unit{Name: "libpod-" + dockerID + ".scope", User: -1}, Container{ID: dockerID, Runtime: "podman"}},
+		// Container IDs in a user's subtree are marked as delegated.
 		{"/user.slice/user-1000.slice/user@1000.service/app.slice/docker-" + dockerID + ".scope",
 			Unit{Name: "docker-" + dockerID + ".scope", UserManager: true, User: 1000},
 			Container{ID: dockerID, Runtime: "docker", Delegated: true}},
