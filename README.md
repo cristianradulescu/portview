@@ -4,7 +4,8 @@ A terminal UI for Linux that lists open TCP/UDP sockets, shows the process
 behind each one, and lets you stop that process. It works like lazygit, but
 for ports.
 
-> **Status:** early development. Socket collection and `--dump` work; the TUI is not implemented yet.
+> **Status:** early development. The read-only TUI and `--dump` work. The full
+> process details pane, Docker integration and the kill action are still to come.
 
 ## Planned features (v1)
 
@@ -38,13 +39,48 @@ make install      # go install into $GOBIN
 ## Usage
 
 ```sh
-portview                      # start the TUI (not implemented yet)
+portview                              # start the TUI
 portview --dump                       # print listening sockets and exit
 portview --dump --state established   # established connections only
 portview --dump --state all           # every socket, TIME-WAIT included
-portview --interval 5s        # set the refresh interval
-portview --no-docker          # do not contact the Docker daemon
+portview --state all                  # start the TUI showing every socket
+portview --interval 5s                # set the refresh interval (default 2s)
+portview --no-docker                  # do not contact the Docker daemon
 ```
+
+### TUI
+
+The socket list is on the left and details for the selected socket are on
+the right. The details pane is hidden when the terminal is narrower than 110
+columns. The status bar at the bottom shows the active filters, the row
+count, a hint when some owners are hidden and the time of the last refresh.
+
+The list refreshes every `--interval`. The selected socket stays selected
+when rows appear or disappear around it. If it disappears, the next row
+moves into its place. Sockets that appeared in the latest refresh are shown
+in bold.
+
+| Key | Action |
+|---|---|
+| `j` / `↓`, `k` / `↑` | next / previous socket |
+| `PgDn` / `Ctrl-d`, `PgUp` / `Ctrl-u` | page down / up |
+| `g` / `Home`, `G` / `End` | first / last socket |
+| `/` | filter by port, address, process name, PID or user. The list updates as you type; `Enter` keeps the filter, `Esc` clears it |
+| `Esc` | clear the text filter |
+| `l` / `e` / `a` | listening / established / all sockets |
+| `t` / `u` | TCP only / UDP only (press again to show both) |
+| `4` / `6` | IPv4 only / IPv6 only (press again to show both) |
+| `r` | refresh now |
+| `?` | help |
+| `q`, `Ctrl-c` | quit |
+
+In the text filter, a bare number matches a port exactly (`80` does not
+match `8080`) or a PID. Text matches a substring of the address, process
+name, user or state. Separate several terms with spaces; a row must match
+all of them.
+
+Exposure colors: **red** means all interfaces, **yellow** one interface,
+**green** loopback only, and **cyan** another network namespace.
 
 ### `--dump` output
 

@@ -235,3 +235,16 @@ func TestParseBracketInode(t *testing.T) {
 		}
 	}
 }
+
+func TestCommIsSanitized(t *testing.T) {
+	root := buildProc(t, []fakeProcess{
+		{pid: 9, fds: map[string]string{"3": "socket:[1]"}, status: status(1, 1000), comm: "x\x1b]0;owned\x07"},
+	})
+	tbl, err := Scanner{Root: root}.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := tbl.Procs[9].Comm, `x\x1b]0;owned\x07`; got != want {
+		t.Errorf("Comm = %q, want %q", got, want)
+	}
+}

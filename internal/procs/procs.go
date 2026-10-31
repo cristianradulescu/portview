@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/cristianradulescu/portview/internal/termsafe"
 )
 
 // Process is what a scan knows about one process. Info fields (Comm, PPID,
@@ -26,7 +28,7 @@ type Process struct {
 	Inspectable bool
 
 	Loaded bool
-	Comm   string
+	Comm   string // sanitized for terminal output (see termsafe)
 	PPID   int
 	UID    int    // effective UID, -1 if unknown
 	Cgroup string // cgroup v2 path (or the systemd v1 hierarchy path), "" if unknown
@@ -177,7 +179,7 @@ func (t *Table) load(root string, pid int) {
 	p.Loaded = true
 	p.PPID, p.UID = parseStatus(status)
 	if comm, err := os.ReadFile(filepath.Join(pdir, "comm")); err == nil {
-		p.Comm = strings.TrimRight(string(comm), "\n")
+		p.Comm = termsafe.String(strings.TrimRight(string(comm), "\n"))
 	}
 	if cg, err := os.ReadFile(filepath.Join(pdir, "cgroup")); err == nil {
 		p.Cgroup = ParseCgroup(cg)

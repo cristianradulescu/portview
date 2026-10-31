@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cristianradulescu/portview/internal/inventory"
+	"github.com/cristianradulescu/portview/internal/ui/portsview"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -38,7 +39,7 @@ func parseFlags(args []string, errOut io.Writer) (config, error) {
 	fs.DurationVar(&cfg.interval, "interval", 2*time.Second, "auto-refresh interval (e.g. 2s, 500ms)")
 	fs.BoolVar(&cfg.noDocker, "no-docker", false, "do not query the Docker daemon for container names")
 	fs.BoolVar(&cfg.dump, "dump", false, "print sockets to stdout and exit instead of starting the TUI")
-	fs.StringVar(&state, "state", "listen", "socket state filter for --dump: listen, established or all")
+	fs.StringVar(&state, "state", "listen", "initial socket state filter: listen, established or all")
 	fs.BoolVar(&cfg.version, "version", false, "print version and exit")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: portview [flags]\n\nFlags:\n")
@@ -72,22 +73,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	switch {
-	case cfg.version:
+	if cfg.version {
 		fmt.Fprintln(stdout, "portview", version)
 		return 0
-	case cfg.dump:
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		if err := dump(ctx, inventory.NewCollector(), inventory.Filter{State: cfg.state}, stdout, stderr); err != nil {
-			fmt.Fprintln(stderr, "portview:", err)
-			return 1
-		}
-		return 0
-	default:
-		fmt.Fprintln(stderr, "portview: the TUI is not implemented yet")
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	collector := inventory.NewCollector()
+	filter := inventory.Filter{State: cfg.state}
+
+	if cfg.dump {
+		err = dump(ctx, collector, filter, stdout, stderr)
+	} else {
+		err = portsview.Run(ctx, portsview.Options{Collector: collector, Interval: cfg.interval, Filter: filter})
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "portview:", err)
 		return 1
 	}
+	return 0
 }
 
 func main() {
