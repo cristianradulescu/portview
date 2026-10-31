@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-31
+
+### Fixed
+
+- In dialogs, `Enter` could run the option chosen the first time a
+  dialog was confirmed instead of the highlighted one: the binding kept
+  the index from its first use. In the kill dialog this could run a
+  different action than the one shown selected.
+
 ## [0.1.0] - 2026-10-31
 
 First release.
@@ -70,5 +79,6 @@ First release.
 - `systemctl` runs with `--no-ask-password` and never prompts on the
   terminal.
 
-[Unreleased]: https://github.com/cristianradulescu/portview/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cristianradulescu/portview/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/cristianradulescu/portview/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/cristianradulescu/portview/releases/tag/v0.1.0

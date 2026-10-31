@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/jesseduffield/gocui"
 )
 
 func TestListStateClamp(t *testing.T) {
@@ -203,5 +205,38 @@ func TestChunk(t *testing.T) {
 	}
 	if got := Chunk("ab", 5); len(got) != 1 || got[0] != "ab" {
 		t.Errorf("short Chunk = %q", got)
+	}
+}
+
+// TestDialogEnterUsesCurrentSelection guards against the Enter binding
+// remembering the index chosen on its first use.
+func TestDialogEnterUsesCurrentSelection(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{Headless: true, Width: 80, Height: 24, OutputMode: gocui.OutputTrue})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	d := &Dialog{Name: "d"}
+	var enter func() error
+	for _, b := range d.Bindings(g, "") {
+		for _, k := range b.Keys {
+			if k == gocui.KeyEnter {
+				enter = b.Handler
+			}
+		}
+	}
+	var picked []string
+	open := func(sel int) {
+		d.Open("", nil, []Choice{
+			{Label: "a", Handler: func() error { picked = append(picked, "a"); return nil }},
+			{Label: "b", Handler: func() error { picked = append(picked, "b"); return nil }},
+		}, sel)
+	}
+	open(1)
+	_ = enter()
+	open(0)
+	_ = enter()
+	if strings.Join(picked, ",") != "b,a" {
+		t.Errorf("picked %v, want [b a]", picked)
 	}
 }

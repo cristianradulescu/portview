@@ -201,14 +201,16 @@ func (d *Dialog) Bindings(g *gocui.Gui, focusView string) []Binding {
 		}
 		return nil
 	}
-	choose := func(i int) func() error {
+	// choose(n) picks choice n; choose(-1) picks the selected one (Enter).
+	choose := func(n int) func() error {
 		return func() error {
 			if len(d.choices) == 0 {
-				if d.Busy || i >= 0 {
+				if d.Busy || n >= 0 {
 					return nil
 				}
 				return cancel() // message box: Enter closes it
 			}
+			i := n // never assign to n: the closure is reused for every press
 			if i < 0 {
 				i = d.selected
 			}
