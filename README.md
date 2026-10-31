@@ -4,7 +4,7 @@ A terminal UI for Linux that lists open TCP/UDP sockets, shows the process
 behind each one, and lets you stop that process. It works like lazygit, but
 for ports.
 
-> **Status:** v0.1.0, the first release. See [CHANGELOG.md](CHANGELOG.md).
+> **Status:** v0.2.0. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 

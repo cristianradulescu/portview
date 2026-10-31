@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-31
+
+portview as a way to learn: every view comes with the shell commands
+that show the same, the kernel's raw data explained, and more about
+sockets, ports and processes; plus an event timeline and Unix sockets.
+
 ### Added
 
 - Equivalent commands in the details pane: the `ss` command matching the
@@ -134,6 +140,7 @@ First release.
 - `systemctl` runs with `--no-ask-password` and never prompts on the
   terminal.
 
-[Unreleased]: https://github.com/cristianradulescu/portview/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/cristianradulescu/portview/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cristianradulescu/portview/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/cristianradulescu/portview/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/cristianradulescu/portview/releases/tag/v0.1.0
