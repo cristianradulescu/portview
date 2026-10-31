@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/cristianradulescu/portview/internal/sockets"
+	"github.com/cristianradulescu/portview/internal/termsafe"
 )
 
 // UnixTypeHelp says what a Unix socket type is.
@@ -138,7 +139,9 @@ func ReadUnix(path string, inode uint64) (*Report, error) {
 			if err != nil {
 				return nil, err
 			}
-			return &Report{Path: path, LineNo: i + 1, Header: lines[0], Line: l, Fields: fields}, nil
+			// The path is free text chosen by whoever bound the socket:
+			// never print it raw.
+			return &Report{Path: path, LineNo: i + 1, Header: termsafe.String(lines[0]), Line: termsafe.String(l), Fields: fields}, nil
 		}
 	}
 	return nil, ErrNotFound

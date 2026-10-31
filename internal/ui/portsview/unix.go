@@ -137,6 +137,9 @@ func (a *App) renderUnix(v *gocui.View) {
 		if !u.HostNetNS {
 			path = tui.Color(tui.StripANSI(path), tui.FgCyan)
 		}
+		if u.Suspicious {
+			path = tui.Color(tui.StripANSI(path), tui.FgYellow)
+		}
 		state := tui.Fit(u.StateLabel(), stateW)
 		if u.Listen() {
 			state = tui.Bold(state)
@@ -196,6 +199,13 @@ func (a *App) renderUnixDetails(width int) string {
 	}
 
 	section("Unix socket")
+	if u.Suspicious {
+		for _, l := range tui.WrapHanging("Warning: another line of /proc/net/unix has the same inode. Socket paths may "+
+			"contain newlines, which the kernel prints as they are, so one of these lines may be forged by a path "+
+			"to pass a socket off under another name. ss -x reads netlink and is not fooled.", width-2, "") {
+			sb.WriteString("  " + tui.Color(l, tui.FgYellow) + "\n")
+		}
+	}
 	kv("Type", u.Type.String()+tui.Dim(" ("+u.Type.Netid()+" in ss)"))
 	note(explain.UnixTypeHelp(u.Type))
 	kv("State", u.StateLabel())

@@ -67,6 +67,11 @@ sockets, ports and processes; plus an event timeline and Unix sockets.
 - Generated `systemctl` and `docker` commands put `--` before unit and
   container names, so a name that looks like an option (users name units
   freely in their own systemd subtree) stays a name.
+- Unix socket paths are untrusted text: the kernel view sanitizes the raw
+  `/proc/net/unix` line (a path could carry terminal escape sequences),
+  generated `ss` and `ls` commands put `--` before paths (a relative path
+  may start with `-`), and records sharing an inode are flagged, since a
+  path containing a newline can forge lines of `/proc/net/unix`.
 
 ## [0.1.1] - 2026-10-31
 

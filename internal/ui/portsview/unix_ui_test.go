@@ -63,7 +63,7 @@ func TestUnixTab(t *testing.T) {
 	details := strings.Join(strings.Fields(viewText(t, g, viewDetails)), " ")
 	for _, want := range []string{"Type stream (u_str in ss)", "like TCP", "State LISTEN", "listen() was called",
 		"Path /run/docker.sock", "a file in the filesystem", "File srw-rw---- root:docker", "You are in its group docker",
-		"Inode 11", "$ ss -xlp", "$ ls -l /run/docker.sock", "awk 'NR == 1 || $7 == 11' /proc/net/unix"} {
+		"Inode 11", "$ ss -xlp", "$ ls -l -- /run/docker.sock", "awk 'NR == 1 || $7 == 11' /proc/net/unix"} {
 		if !strings.Contains(details, want) {
 			t.Errorf("details missing %q:\n%s", want, details)
 		}
@@ -108,6 +108,17 @@ func TestUnixTab(t *testing.T) {
 			t.Errorf("IP-only key %v bound on the Unix tab", b.Keys[0])
 		}
 	}
+	// A record sharing its inode with another is flagged.
+	snap := unixSnapshot()
+	snap.Unix[0].Suspicious = true
+	a.apply(snap, nil)
+	a.setFilterText("")
+	a.ux.sel = unixKey{1, 11}
+	draw(t, g)
+	if d := strings.Join(strings.Fields(viewText(t, g, viewDetails)), " "); !strings.Contains(d, "may be forged") {
+		t.Errorf("suspicious record not flagged:\n%s", d)
+	}
+
 	// ] goes on to Events, [ back to Unix.
 	_ = press(t, a, viewUnix, ']')
 	draw(t, g)

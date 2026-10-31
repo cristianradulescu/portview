@@ -92,3 +92,21 @@ func TestReadUnixLive(t *testing.T) {
 		t.Errorf("unknown inode: %v", err)
 	}
 }
+
+func TestReadUnixSanitizesRawLine(t *testing.T) {
+	table := filepath.Join(t.TempDir(), "unix")
+	data := "Num       RefCount Protocol Flags    Type St Inode Path\n" +
+		"0000000000000000: 00000002 00000000 00010000 0001 01 4242 /tmp/\x1b]0;pwned\x07\x1b[2J.sock\n"
+	if err := os.WriteFile(table, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := ReadUnix(table, 4242)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{r.Line, r.Header} {
+		if strings.ContainsAny(s, "\x1b\x07") {
+			t.Errorf("raw control characters reach the terminal: %q", s)
+		}
+	}
+}

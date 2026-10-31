@@ -42,4 +42,22 @@ func TestParseProcNetUnix(t *testing.T) {
 	if us[5].Path == "/run/evil\x1b[2J.sock" {
 		t.Error("escape sequence in path not sanitized")
 	}
+	for _, u := range us {
+		if u.Suspicious {
+			t.Errorf("%s marked suspicious", u.Path)
+		}
+	}
+}
+
+// TestForgedUnixLine: a path containing a newline appends a fake record
+// that claims a well-known name for another socket's inode.
+func TestForgedUnixLine(t *testing.T) {
+	forged := "Num       RefCount Protocol Flags    Type St Inode Path\n" +
+		"0000000000000000: 00000002 00000000 00010000 0001 01 26657 /run/docker.sock\n" +
+		"0000000000000000: 00000002 00000000 00010000 0001 01 5555 /tmp/x\n" +
+		"0000000000000000: 00000002 00000000 00010000 0001 01 26657 /run/important.sock\n"
+	us := ParseProcNetUnix([]byte(forged))
+	if len(us) != 3 || !us[0].Suspicious || us[1].Suspicious || !us[2].Suspicious {
+		t.Errorf("suspicious flags = %+v", us)
+	}
 }

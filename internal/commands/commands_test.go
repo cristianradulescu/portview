@@ -243,6 +243,17 @@ func TestOption(t *testing.T) {
 	}
 }
 
+func TestUnixSocketCommands(t *testing.T) {
+	u := &inventory.UnixEntry{UnixSocket: sockets.UnixSocket{Type: sockets.UnixStream, Flags: 0x10000,
+		State: sockets.UnixUnconnected, Inode: 42, Path: "-rf x"}, HostNetNS: true}
+	got := cmds(UnixSocket(u, nil, Env{}))
+	for _, want := range []string{"ss -xape -- src '-rf x'\n", "ls -l -- '-rf x'\n", "awk 'NR == 1 || $7 == 42' /proc/net/unix\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+}
+
 func TestNamespaceScan(t *testing.T) {
 	snap := &inventory.Snapshot{Procs: &procs.Table{HostNetNS: 1,
 		Procs:      map[int]*procs.Process{4242: {PID: 4242, Comm: "srv", Loaded: true}},

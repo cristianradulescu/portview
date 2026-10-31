@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/cristianradulescu/portview/internal/sockets"
+	"github.com/cristianradulescu/portview/internal/termsafe"
 )
 
 // Field is one decoded field of a raw line.
@@ -70,7 +71,7 @@ func Read(path string, s sockets.Socket, opts Options) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Report{Path: path, LineNo: n, Header: header, Line: line, Fields: fields}, nil
+	return &Report{Path: path, LineNo: n, Header: termsafe.String(header), Line: termsafe.String(line), Fields: fields}, nil
 }
 
 // Fields explains one line of a /proc/net table.

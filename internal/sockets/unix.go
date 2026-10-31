@@ -72,6 +72,11 @@ type UnixSocket struct {
 	// unnamed socket (one end of a connection or socketpair).
 	Path  string
 	NetNS uint64
+	// Suspicious is set when another record of the same table has the
+	// same inode. Paths may contain newlines, which the kernel prints as
+	// they are, so a path can forge whole lines of /proc/net/unix; a
+	// forged line pointing at a real socket must repeat its inode.
+	Suspicious bool
 }
 
 // Listen reports whether listen() was called on the socket.
@@ -107,8 +112,10 @@ func (u *UnixSocket) StateLabel() string {
 //	Num RefCount Protocol Flags Type St Inode [Path]
 //
 // Malformed lines are skipped. Paths are sanitized for the terminal.
+// Records sharing an inode are marked Suspicious (see UnixSocket).
 func ParseProcNetUnix(data []byte) []UnixSocket {
 	var out []UnixSocket
+	seen := make(map[uint64]int)
 	for i, line := range strings.Split(string(data), "\n") {
 		if i == 0 || strings.TrimSpace(line) == "" {
 			continue
@@ -116,6 +123,12 @@ func ParseProcNetUnix(data []byte) []UnixSocket {
 		u, err := parseUnixLine(line)
 		if err == nil {
 			out = append(out, u)
+			seen[u.Inode]++
+		}
+	}
+	for i := range out {
+		if seen[out[i].Inode] > 1 {
+			out[i].Suspicious = true
 		}
 	}
 	return out

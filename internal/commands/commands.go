@@ -486,12 +486,14 @@ func UnixSocket(u *inventory.UnixEntry, snap *inventory.Snapshot, env Env) []Com
 	}
 	ino := strconv.FormatUint(u.Inode, 10)
 	if u.Path != "" {
-		add("this socket by name, with its owner (-p) and inode (-e)", inNS("ss -xape src "+Quote(u.Path)))
+		// "--": a relative path may start with "-" and must not become an
+		// option.
+		add("this socket by name, with its owner (-p) and inode (-e)", inNS("ss -xape -- src "+Quote(u.Path)))
 	} else {
 		add("this socket: unnamed, so find it by inode", inNS("ss -xape")+" | grep -w "+ino)
 	}
 	if u.Path != "" && !u.Abstract() {
-		add("the socket file: its permissions decide who may connect", "ls -l "+Quote(u.Path))
+		add("the socket file: its permissions decide who may connect", "ls -l -- "+Quote(u.Path))
 	}
 	table := "/proc/net/unix"
 	if leader > 0 {
