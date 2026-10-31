@@ -23,6 +23,10 @@ for ports.
   it offers `docker stop`.
 - Auto-refresh that keeps your selection in place.
 - Works without root, and says what you would see or be able to do with `sudo`.
+- Doubles as a way to learn the command line: every view, socket, process
+  and action comes with the shell commands that show or do the same
+  (`ss`, `lsof`, `/proc`, `ps`, `systemctl`, `journalctl`, `docker`, the
+  Docker API), and a command log records what portview did, as commands.
 
 ## Requirements
 
@@ -82,7 +86,8 @@ in bold.
 | `l` / `e` / `a` | listening / established / all sockets |
 | `t` / `u` | TCP only / UDP only (press again to show both) |
 | `4` / `6` | IPv4 only / IPv6 only (press again to show both) |
-| `Tab` | focus the details pane (`j`/`k`, `PgUp`/`PgDn` scroll; `Tab`/`Esc` go back) |
+| `Tab` | focus the details pane (`j`/`k`, `PgUp`/`PgDn` scroll), then the command log; `Esc` goes back |
+| `y` | copy one of the equivalent commands (see [Equivalent commands](#equivalent-commands)) |
 | `x` | stop what holds the selected socket (see [Stopping a process](#stopping-a-process)) |
 | `r` | refresh now |
 | `?` | help |
@@ -95,6 +100,51 @@ all of them.
 
 Exposure colors: **red** means all interfaces, **yellow** one interface,
 **green** loopback only, and **cyan** another network namespace.
+
+### Equivalent commands
+
+The bottom of the details pane lists shell commands that show what
+portview shows, so you can check its work or do without it:
+
+- **The list:** the `ss` command matching the current filters (`ss -tulnp`,
+  `ss -tanp6`, `ss -unp state established '( sport = :53 or dport = :53 )'`).
+- **The socket:** `ss` with a filter selecting exactly this socket, `lsof`,
+  the socket's line in the raw kernel table
+  (`awk 'NR == 1 || $2 == "0100007F:1F90"' /proc/net/tcp`, with the
+  address decoded from hex), and the `find /proc/*/fd` that maps its inode
+  to a process, which is how portview itself finds owners. Sockets in
+  another network namespace get `sudo nsenter -t <pid> -n …`.
+- **The process:** `ps`, its command line, executable and working
+  directory from `/proc`, its cgroup, and its other sockets.
+- **The unit:** `systemctl status`, `journalctl` and `systemctl show`, with
+  `--user` or `--machine=<user>@.host` for user services.
+- **The container:** `docker inspect`, `docker top`, `docker port`, and the
+  Docker API call portview makes, as `curl --unix-socket`.
+
+`sudo` is added where the command needs it to show what portview shows.
+Every name in a command (unit, container, filter text) is shell-quoted,
+since names can come from untrusted sources.
+
+`y` opens a picker of these commands and copies the chosen one. Copying
+uses `wl-copy`, `xclip` or `xsel` when available, and otherwise the OSC 52
+escape sequence, which most terminals support (inside tmux, set
+`set -g set-clipboard on`).
+
+### Command log
+
+The panel below the details lists what portview did, as the command you
+would type to do the same: the `ss` of each network namespace it reads
+(logged when the set of namespaces changes, not on every refresh), the
+Docker API call, process details it read, and every action from the kill
+dialog with its result. `Tab` from the details pane focuses it; `j`/`k`
+select an entry, `y` copies it, `G` follows new entries again.
+
+The kill dialog also shows the exact command of the highlighted option:
+`kill -TERM 812`, `systemctl --no-ask-password stop -- nginx.service`, or
+`docker stop web-1` with the API request portview sends.
+
+The log is hidden when the terminal is less than 22 rows tall, and, like
+the details pane, below 110 columns.
 
 ### `--dump` output
 
@@ -267,6 +317,7 @@ internal/docker/       minimal Docker API client over the unix socket (list, sto
 internal/termsafe/     escaping of untrusted strings before they reach the terminal
 internal/inventory/    snapshot assembly, filtering, ordering, diff and selection
 internal/actions/      what to offer for a socket (Plan) and doing it: signals, systemctl stop, docker stop
+internal/commands/     the shell commands equivalent to what portview shows and does
 internal/ui/tui/       generic gocui building blocks
 internal/ui/portsview/ portview-specific panels and dialogs
 ```

@@ -85,9 +85,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	collector := inventory.NewCollector()
 	containers := &inventory.ContainerAnnotator{}
 	runner := &actions.System{Users: collector.Users}
+	dockerSocket := ""
 	if sock := docker.SocketPath(); !cfg.noDocker && sock != "" {
 		client := docker.New(sock)
 		containers.Docker, runner.Docker = client, client
+		if _, err := os.Stat(sock); err == nil {
+			dockerSocket = sock // for the equivalent commands
+		}
 	}
 	collector.Annotators = append(collector.Annotators, containers)
 	filter := inventory.Filter{State: cfg.state}
@@ -97,6 +101,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	} else {
 		err = portsview.Run(ctx, portsview.Options{
 			Collector: collector, Users: collector.Users, Interval: cfg.interval, Filter: filter, Actions: runner,
+			DockerSocket: dockerSocket,
 		})
 	}
 	if err != nil {

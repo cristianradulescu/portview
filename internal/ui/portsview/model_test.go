@@ -21,7 +21,7 @@ func listen(proto sockets.Proto, port uint16) inventory.Entry {
 }
 
 func snapshot(es ...inventory.Entry) *inventory.Snapshot {
-	return &inventory.Snapshot{Entries: es, Procs: &procs.Table{HostNetNS: 1}}
+	return &inventory.Snapshot{Entries: es, Procs: &procs.Table{HostNetNS: 1, Namespaces: []procs.Namespace{{Key: 1, PIDs: []int{1}}}}}
 }
 
 func tcp(ports ...uint16) *inventory.Snapshot {

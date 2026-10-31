@@ -13,6 +13,9 @@ type Choice struct {
 	Handler func() error
 	// Danger shows the choice in red (e.g. SIGKILL).
 	Danger bool
+	// Commands are shown below the choices while this one is selected,
+	// e.g. the exact command it runs.
+	Commands []string
 }
 
 // Dialog is a modal box with a text body and a list of choices, picked
@@ -93,6 +96,11 @@ func (d *Dialog) Width(maxX int) int {
 	for _, l := range d.Footer {
 		w = max(w, StringWidth(l)+2)
 	}
+	for _, c := range d.choices {
+		for _, l := range c.Commands {
+			w = max(w, StringWidth(l)+6)
+		}
+	}
 	return max(20, min(w, limit, maxX-4))
 }
 
@@ -105,6 +113,13 @@ func choicePrefix(i int) string {
 
 // Lines renders the content for an inner width w.
 func (d *Dialog) Lines(w int) []string {
+	lines, _ := d.render(w)
+	return lines
+}
+
+// render returns the lines and the index of the selected choice's line.
+func (d *Dialog) render(w int) ([]string, int) {
+	selLine := -1
 	lines := make([]string, 0, len(d.body)+len(d.choices)+len(d.Footer)+2)
 	// Text lines get a one-cell margin on each side.
 	fit := func(l string) string {
@@ -132,8 +147,15 @@ func (d *Dialog) Lines(w int) []string {
 			}
 			if i == d.selected {
 				codes = append(codes, "7") // reverse video
+				selLine = len(lines)
 			}
 			lines = append(lines, Color(line, codes...))
+		}
+		if cmds := d.choices[d.selected].Commands; len(cmds) > 0 {
+			lines = append(lines, "")
+			for _, c := range cmds {
+				lines = append(lines, Color(fit("$ "+c), FgCyan))
+			}
 		}
 	}
 	if len(d.Footer) > 0 {
@@ -142,7 +164,7 @@ func (d *Dialog) Lines(w int) []string {
 			lines = append(lines, fit(l))
 		}
 	}
-	return lines
+	return lines, selLine
 }
 
 // Layout draws the dialog when active.
@@ -152,7 +174,7 @@ func (d *Dialog) Layout(g *gocui.Gui) error {
 	}
 	maxX, maxY := g.Size()
 	w := d.Width(maxX)
-	lines := d.Lines(w)
+	lines, selLine := d.render(w)
 	v, created, err := SetView(g, d.Name, Centered(maxX, maxY, w+1, len(lines)+1))
 	if err != nil {
 		return err
@@ -166,12 +188,7 @@ func (d *Dialog) Layout(g *gocui.Gui) error {
 	v.Title = d.title
 	_, h := v.InnerSize()
 	// Keep the selected choice in view; the body scrolls away if needed.
-	if len(d.choices) > 0 {
-		footer := 0
-		if len(d.Footer) > 0 {
-			footer = len(d.Footer) + 1
-		}
-		selLine := len(lines) - footer - len(d.choices) + d.selected
+	if selLine >= 0 {
 		d.origin = max(0, selLine-h+1)
 	} else {
 		d.origin = min(d.origin, max(0, len(lines)-h))

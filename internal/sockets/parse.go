@@ -152,3 +152,36 @@ func decodeWords(dst []byte, hexStr string) error {
 	}
 	return nil
 }
+
+// FormatProcNetAddr encodes ap the way /proc/net/{tcp,udp}[6] print it,
+// e.g. 127.0.0.1:8080 as "0100007F:1F90" on little-endian machines. It is
+// the inverse of the parser, used to point at a socket's line in the raw
+// table.
+func FormatProcNetAddr(ap netip.AddrPort, family Family) string {
+	var b []byte
+	if family == IPv4 {
+		a := ap.Addr().Unmap().As4()
+		b = a[:]
+	} else {
+		a := ap.Addr().As16()
+		b = a[:]
+	}
+	var sb strings.Builder
+	for i := 0; i < len(b); i += 4 {
+		fmt.Fprintf(&sb, "%08X", binary.NativeEndian.Uint32(b[i:]))
+	}
+	fmt.Fprintf(&sb, ":%04X", ap.Port())
+	return sb.String()
+}
+
+// ProcNetTable is the /proc/net file name for proto and family ("tcp6").
+func ProcNetTable(proto Proto, family Family) string {
+	name := "tcp"
+	if proto == UDP {
+		name = "udp"
+	}
+	if family == IPv6 {
+		name += "6"
+	}
+	return name
+}

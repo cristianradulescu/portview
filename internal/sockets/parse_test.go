@@ -145,3 +145,33 @@ func TestStateString(t *testing.T) {
 		t.Errorf("unknown state: %q", State(0x42).String())
 	}
 }
+
+func TestFormatProcNetAddrRoundTrip(t *testing.T) {
+	for _, tt := range []struct {
+		addr   string
+		family Family
+	}{
+		{"127.0.0.1:8080", IPv4},
+		{"0.0.0.0:80", IPv4},
+		{"10.1.2.3:65535", IPv4},
+		{"[::]:443", IPv6},
+		{"[::1]:631", IPv6},
+		{"[fe80::1234:5678:9abc:def0]:22", IPv6},
+		{"[::ffff:192.168.1.10]:5353", IPv6},
+	} {
+		ap := netip.MustParseAddrPort(tt.addr)
+		enc := FormatProcNetAddr(ap, tt.family)
+		got, err := parseHexAddrPort(enc, tt.family)
+		if err != nil || got != ap {
+			t.Errorf("%s → %q → %v, %v", tt.addr, enc, got, err)
+		}
+	}
+	if binary.NativeEndian.Uint16([]byte{1, 0}) == 1 { // little-endian
+		if got := FormatProcNetAddr(netip.MustParseAddrPort("127.0.0.1:8080"), IPv4); got != "0100007F:1F90" {
+			t.Errorf("127.0.0.1:8080 = %q, want 0100007F:1F90", got)
+		}
+	}
+	if ProcNetTable(TCP, IPv6) != "tcp6" || ProcNetTable(UDP, IPv4) != "udp" {
+		t.Error("ProcNetTable")
+	}
+}

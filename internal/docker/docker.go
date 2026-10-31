@@ -134,6 +134,9 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 	}
 	out := make([]Container, 0, len(raw))
 	for _, r := range raw {
+		if !isID(r.ID) {
+			continue // not a container ID: never let it reach a command or path
+		}
 		ct := Container{
 			ID:      r.ID,
 			Image:   termsafe.String(r.Image),
@@ -214,6 +217,19 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ou
 		return fmt.Errorf("docker: decoding %s: %w", path, err)
 	}
 	return nil
+}
+
+// isID reports whether s is a full container ID (64 lowercase hex digits).
+func isID(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func classify(err error) error {

@@ -9,6 +9,7 @@ import (
 	"github.com/jesseduffield/gocui"
 
 	"github.com/cristianradulescu/portview/internal/actions"
+	"github.com/cristianradulescu/portview/internal/commands"
 	"github.com/cristianradulescu/portview/internal/inventory"
 	"github.com/cristianradulescu/portview/internal/procs"
 	"github.com/cristianradulescu/portview/internal/sockets"
@@ -23,7 +24,12 @@ const (
 	viewFilter  = "filter"
 	viewHelp    = "help"
 	viewDialog  = "dialog"
+	viewLog     = "log"
 )
+
+// logMinHeight is the height (in rows) below which the command log is
+// hidden to leave room for the details.
+const logMinHeight = 20
 
 // detailsMinScreen is the screen width below which the details pane is
 // hidden to leave room for the list.
@@ -48,6 +54,11 @@ type Options struct {
 	// Actions carries out the kill action; defaults to an actions.System
 	// without Docker.
 	Actions actions.Runner
+	// DockerSocket is the Docker API socket portview talks to, for the
+	// equivalent commands; "" when Docker is disabled or absent.
+	DockerSocket string
+	// Clipboard copies text and says how; defaults to tui.Copy.
+	Clipboard func(text string) (string, error)
 }
 
 // App is the portview TUI.
@@ -73,6 +84,10 @@ type App struct {
 	// flash is a message shown in the status bar until flashUntil.
 	flash      string
 	flashUntil time.Time
+
+	// log is the command log; logShown is whether its panel fits.
+	log      commandLog
+	logShown bool
 
 	// details of processes read during the current snapshot, by PID;
 	// cleared on every refresh so they never get older than one interval.
@@ -129,6 +144,9 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 	if opts.Actions == nil {
 		opts.Actions = &actions.System{Users: opts.Users}
 	}
+	if opts.Clipboard == nil {
+		opts.Clipboard = tui.Copy
+	}
 	a := &App{
 		opts:       opts,
 		g:          g,
@@ -137,6 +155,7 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 		refreshReq: make(chan struct{}, 1),
 		ctx:        context.Background(),
 		dialog:     &tui.Dialog{Name: viewDialog},
+		log:        newCommandLog(),
 	}
 	a.async = func(work func() func() error) {
 		go func() {
@@ -201,6 +220,7 @@ func (a *App) apply(snap *inventory.Snapshot, err error) {
 	a.model.SetSnapshot(snap)
 	a.refreshed = snap.Taken
 	clear(a.details)
+	a.logSnapshot(snap)
 }
 
 type detailsResult struct {
@@ -220,6 +240,10 @@ func (a *App) selectedDetails() (*procs.Details, error) {
 	if !ok {
 		r.d, r.err = a.opts.Details(pid)
 		a.details[pid] = r
+		if pid != a.log.lastDetails {
+			a.log.lastDetails = pid
+			a.logOps(commands.DetailsRead(pid, r.err))
+		}
 	}
 	return r.d, r.err
 }
@@ -260,8 +284,13 @@ func (a *App) layout(g *gocui.Gui) error {
 	}
 	a.renderList(list)
 
+	detailsY1 := bottom
+	a.logShown = showDetails && bottom >= logMinHeight
+	if a.logShown {
+		detailsY1 = bottom - min(14, max(6, bottom/3)) - 1
+	}
 	if showDetails {
-		d, created, err := tui.SetView(g, viewDetails, tui.Rect{X0: listX1 + 1, Y0: 0, X1: maxX - 1, Y1: bottom})
+		d, created, err := tui.SetView(g, viewDetails, tui.Rect{X0: listX1 + 1, Y0: 0, X1: maxX - 1, Y1: detailsY1})
 		if err != nil {
 			return err
 		}
@@ -276,6 +305,22 @@ func (a *App) layout(g *gocui.Gui) error {
 			}
 		}
 		if err := tui.DeleteView(g, viewDetails); err != nil {
+			return err
+		}
+	}
+	if a.logShown {
+		lv, _, err := tui.SetView(g, viewLog, tui.Rect{X0: listX1 + 1, Y0: detailsY1 + 1, X1: maxX - 1, Y1: bottom})
+		if err != nil {
+			return err
+		}
+		a.renderLog(lv)
+	} else {
+		if cv := g.CurrentView(); cv != nil && cv.Name() == viewLog {
+			if _, err := g.SetCurrentView(viewList); err != nil {
+				return err
+			}
+		}
+		if err := tui.DeleteView(g, viewLog); err != nil {
 			return err
 		}
 	}
@@ -342,6 +387,9 @@ func (a *App) renderDetails(v *gocui.View) {
 	in.width, _ = v.InnerSize()
 	v.Clear()
 	v.WriteString(renderDetails(in))
+	if in.snap != nil {
+		v.WriteString("\n" + renderCommands(a.equivalentCommands(), in.width))
+	}
 	_, h := v.InnerSize()
 	a.detailsMax = max(0, v.ViewLinesHeight()-h)
 	a.detailsOrigin = min(a.detailsOrigin, a.detailsMax)

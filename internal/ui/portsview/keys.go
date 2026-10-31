@@ -51,6 +51,8 @@ func (a *App) registerKeys() {
 		tui.Binding{View: viewList, Keys: []any{gocui.KeyTab}, Handler: func() error { return a.focus(viewDetails) },
 			Label: "Tab", Description: "focus the details pane (scroll with j/k)", Section: nav, Hint: "Tab details"},
 
+		tui.Binding{View: viewList, Keys: []any{'y'}, Handler: a.openCopy,
+			Label: "y", Description: "copy an equivalent shell command (also shown in the details pane)", Section: gen},
 		tui.Binding{View: viewList, Keys: []any{'x'}, Handler: a.openKill,
 			Label: "x", Description: "stop what holds the socket: SIGTERM/SIGKILL, systemctl stop, docker stop", Section: gen, Hint: "x kill"},
 		tui.Binding{View: viewList, Keys: []any{'r'}, Handler: do(a.requestRefresh),
@@ -73,11 +75,36 @@ func (a *App) registerKeys() {
 		tui.Binding{View: viewDetails, Keys: []any{gocui.KeyPgup, gocui.KeyCtrlU}, Handler: do(func() { a.scrollDetails(-10) })},
 		tui.Binding{View: viewDetails, Keys: []any{'g', gocui.KeyHome}, Handler: do(func() { a.detailsOrigin = 0 })},
 		tui.Binding{View: viewDetails, Keys: []any{'G', gocui.KeyEnd}, Handler: do(func() { a.detailsOrigin = a.detailsMax })},
-		tui.Binding{View: viewDetails, Keys: []any{gocui.KeyTab, gocui.KeyEsc}, Handler: toList,
-			Label: "Tab/Esc", Description: "back to the socket list", Section: "Details pane", Hint: "Tab/Esc back"},
+		tui.Binding{View: viewDetails, Keys: []any{gocui.KeyTab}, Handler: func() error {
+			if a.logShown {
+				return a.focus(viewLog)
+			}
+			return toList()
+		}, Label: "Tab", Description: "focus the command log (or back to the list)", Section: "Details pane", Hint: "Tab log"},
+		tui.Binding{View: viewDetails, Keys: []any{gocui.KeyEsc}, Handler: toList,
+			Label: "Esc", Description: "back to the socket list", Section: "Details pane", Hint: "Esc back"},
+		tui.Binding{View: viewDetails, Keys: []any{'y'}, Handler: a.openCopy, Hint: "y copy"},
 		tui.Binding{View: viewDetails, Keys: []any{'x'}, Handler: a.openKill, Hint: "x kill"},
 		tui.Binding{View: viewDetails, Keys: []any{'?'}, Handler: a.openHelp, Hint: "? help"},
 		tui.Binding{View: viewDetails, Keys: []any{'q'}, Handler: quit, Hint: "q quit"},
+	)
+	// Command log (focused with Tab from the details pane).
+	const logSec = "Command log"
+	a.keys.Add(
+		tui.Binding{View: viewLog, Keys: []any{'j', gocui.KeyArrowDown}, Handler: do(func() { a.moveLog(1) }),
+			Label: "j/k", Description: "select a command", Section: logSec},
+		tui.Binding{View: viewLog, Keys: []any{'k', gocui.KeyArrowUp}, Handler: do(func() { a.moveLog(-1) })},
+		tui.Binding{View: viewLog, Keys: []any{gocui.KeyPgdn, gocui.KeyCtrlD}, Handler: do(func() { a.moveLog(5) })},
+		tui.Binding{View: viewLog, Keys: []any{gocui.KeyPgup, gocui.KeyCtrlU}, Handler: do(func() { a.moveLog(-5) })},
+		tui.Binding{View: viewLog, Keys: []any{'g', gocui.KeyHome}, Handler: do(func() { a.moveLog(-len(a.log.ops)) }),
+			Label: "g/G", Description: "oldest / newest (G follows new entries)", Section: logSec},
+		tui.Binding{View: viewLog, Keys: []any{'G', gocui.KeyEnd}, Handler: do(func() { a.moveLog(len(a.log.ops)) })},
+		tui.Binding{View: viewLog, Keys: []any{'y'}, Handler: a.copyLog,
+			Label: "y", Description: "copy the selected command", Section: logSec, Hint: "y copy"},
+		tui.Binding{View: viewLog, Keys: []any{gocui.KeyTab, gocui.KeyEsc}, Handler: toList,
+			Label: "Tab/Esc", Description: "back to the socket list", Section: logSec, Hint: "Tab/Esc back"},
+		tui.Binding{View: viewLog, Keys: []any{'?'}, Handler: a.openHelp, Hint: "? help"},
+		tui.Binding{View: viewLog, Keys: []any{'q'}, Handler: quit, Hint: "q quit"},
 	)
 	a.keys.Add(a.prompt.Bindings()...)
 	a.keys.Add(a.help.Bindings(a.g, viewList, gocui.KeyEsc, 'q', '?')...)
@@ -90,7 +117,7 @@ func quit() error { return gocui.ErrQuit }
 
 func helpText(k *tui.Keymap) string {
 	var sb strings.Builder
-	sb.WriteString(k.Help(viewList, viewDetails, viewDialog, ""))
+	sb.WriteString(k.Help(viewList, viewDetails, viewLog, viewDialog, ""))
 	sb.WriteString("\n" + tui.Bold("Exposure") + "\n")
 	for _, x := range []inventory.Exposure{inventory.ExposureAll, inventory.ExposureInterface, inventory.ExposureLoopback, inventory.ExposureNamespace} {
 		sb.WriteString("  " + tui.Color(tui.PadRight(x.String(), 9), exposureColor(x)) + exposureDescription(x) + "\n")

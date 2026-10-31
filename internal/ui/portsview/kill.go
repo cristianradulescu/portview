@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cristianradulescu/portview/internal/actions"
+	"github.com/cristianradulescu/portview/internal/commands"
 	"github.com/cristianradulescu/portview/internal/sockets"
 	"github.com/cristianradulescu/portview/internal/ui/tui"
 )
@@ -91,6 +92,7 @@ func (a *App) openKill() error {
 			defer cancel()
 			restart, err := a.opts.Actions.RestartPolicy(ctx, u)
 			return func() error {
+				a.logOps(commands.RestartPolicy(u, a.cmdEnv(), err))
 				if a.kill != f || !a.dialog.Active() || !f.confirming {
 					return nil // the user moved on
 				}
@@ -133,7 +135,10 @@ func (a *App) showConfirm(f *killFlow, sel int) {
 	for _, o := range p.Options {
 		danger := o.Kind == actions.Signal && f.sig == syscall.SIGKILL
 		hasSignal = hasSignal || o.Kind == actions.Signal
-		choices = append(choices, tui.Choice{Label: o.Text(f.sig), Danger: danger, Handler: func() error { return a.runOption(f, o) }})
+		choices = append(choices, tui.Choice{
+			Label: o.Text(f.sig), Danger: danger, Commands: commands.Option(&o, f.sig, a.cmdEnv()),
+			Handler: func() error { return a.runOption(f, o) },
+		})
 	}
 	body := planBody(f)
 	title := " Stop " + p.Entry.Netid() + " " + sockets.FormatAddrPort(p.Entry.Local) + " "
@@ -253,12 +258,14 @@ func (a *App) runOption(f *killFlow, o actions.Option) error {
 		return a.sendSignal(f, o.Owners, f.sig)
 	case actions.StopUnit:
 		u := o.Unit
-		return a.runLong(f, "Stopping "+u.String(), actions.SystemctlCommand(u), func(ctx context.Context) error {
+		logged := commands.Op{Desc: "stop " + u.String(), Cmd: commands.Systemctl(u, a.cmdEnv(), "stop")}
+		return a.runLong(f, "Stopping "+u.String(), actions.SystemctlCommand(u), logged, func(ctx context.Context) error {
 			return a.opts.Actions.StopUnit(ctx, u)
 		}, u.Name+" stopped")
 	case actions.StopContainer:
 		c := o.Container
-		return a.runLong(f, "Stopping container "+c.Label(), "docker stop "+c.Label(), func(ctx context.Context) error {
+		logged := commands.Op{Desc: "stop container " + c.Label() + " (docker stop)", Cmd: commands.ContainerStop(a.cmdEnv(), c.ID)}
+		return a.runLong(f, "Stopping container "+c.Label(), "docker stop "+c.Label(), logged, func(ctx context.Context) error {
 			return a.opts.Actions.StopContainer(ctx, c.ID)
 		}, "container "+c.Label()+" stopped")
 	}
@@ -284,6 +291,7 @@ func (a *App) sendSignal(f *killFlow, owners []actions.Owner, sig syscall.Signal
 	if err != nil {
 		errs = append(errs, err)
 	}
+	a.logSignal(sig, f.procs, err)
 	if len(sent) == 0 {
 		a.requestRefresh()
 		if len(errs) > 0 {
@@ -374,8 +382,10 @@ func (a *App) showSurvivors(f *killFlow, sig syscall.Signal, waited time.Duratio
 		body = append(body, tui.Dim("Its systemd unit may restart it; consider "+actions.SystemctlCommand(f.plan.Unit)+"."))
 	}
 	a.dialog.Open(" Still running ", body, []tui.Choice{
-		{Label: "SIGKILL PID " + pids, Danger: true, Handler: func() error {
-			if _, err := actions.SignalAll(f.procs, syscall.SIGKILL); err != nil {
+		{Label: "SIGKILL PID " + pids, Danger: true, Commands: []string{commands.Kill(syscall.SIGKILL, procPIDs(f.procs)...)}, Handler: func() error {
+			_, err := actions.SignalAll(f.procs, syscall.SIGKILL)
+			a.logSignal(syscall.SIGKILL, f.procs, err)
+			if err != nil {
 				return a.showError(f, "Could not send SIGKILL", err)
 			}
 			return a.waitExit(f, syscall.SIGKILL, killGrace)
@@ -389,7 +399,7 @@ func (a *App) showSurvivors(f *killFlow, sig syscall.Signal, waited time.Duratio
 
 // runLong runs a systemctl/docker stop in the background. Esc hides the
 // progress dialog; the result then shows in the status bar.
-func (a *App) runLong(f *killFlow, title, command string, op func(context.Context) error, success string) error {
+func (a *App) runLong(f *killFlow, title, command string, logged commands.Op, op func(context.Context) error, success string) error {
 	a.showProgress(f, "Running "+command+"…", "Esc hides this; the result shows in the status bar")
 	a.dialog.OnCancel = nil // keep the flow: the operation continues
 	a.async(func() func() error {
@@ -397,6 +407,8 @@ func (a *App) runLong(f *killFlow, title, command string, op func(context.Contex
 		defer cancel()
 		err := op(ctx)
 		return func() error {
+			logged.Err = err
+			a.logOps(logged)
 			f.waiting = false
 			a.requestRefresh()
 			visible := a.kill == f && a.dialog.Active()
@@ -482,4 +494,25 @@ func (a *App) flashMessage() string {
 	}
 	a.flash = ""
 	return ""
+}
+
+// logSignal logs sending sig to ps as the equivalent kill command.
+func (a *App) logSignal(sig syscall.Signal, ps []actions.Process, err error) {
+	if len(ps) == 0 {
+		return
+	}
+	pids := procPIDs(ps)
+	a.logOps(commands.Op{
+		Desc: fmt.Sprintf("send %s to PID %s", actions.SignalName(sig), actions.PIDs(ps)),
+		Cmd:  commands.Kill(sig, pids...),
+		Err:  err,
+	})
+}
+
+func procPIDs(ps []actions.Process) []int {
+	out := make([]int, len(ps))
+	for i, p := range ps {
+		out[i] = p.PID()
+	}
+	return out
 }

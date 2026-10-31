@@ -34,6 +34,13 @@ const containersJSON = `[{
   "State": "running",
   "Ports": [],
   "NetworkSettings": {"Networks": {}}
+}, {
+  "Id": "x;touch /tmp/pwned",
+  "Names": ["/not-an-id"],
+  "Image": "alpine",
+  "State": "running",
+  "Ports": [],
+  "NetworkSettings": {"Networks": {}}
 }]`
 
 // serve starts an HTTP server on a unix socket and returns its path.
@@ -68,7 +75,7 @@ func TestContainers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(cs) != 2 {
-		t.Fatalf("got %d containers", len(cs))
+		t.Fatalf("got %d containers, want 2 (the entry with a malformed ID is dropped)", len(cs))
 	}
 	web := cs[0]
 	if web.ID != id1 || web.ShortID() != "0123456789ab" || web.Name != "web-1" || web.Image != "nginx:1.29" ||

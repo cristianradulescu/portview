@@ -118,22 +118,29 @@ func (s *System) systemctl(ctx context.Context, u procs.Unit, verb ...string) (s
 // someone else (portview running as root), it is reached with
 // --machine=<user>@.host.
 func SystemctlArgs(u procs.Unit, euid int, users inventory.UserResolver, verb ...string) []string {
-	args := []string{"--no-ask-password"}
-	if u.UserManager {
-		args = append(args, "--user")
-		if u.User != euid {
-			name := ""
-			if users != nil {
-				name = users.Name(u.User)
-			}
-			if name == "" || name == "?" {
-				name = fmt.Sprint(u.User)
-			}
-			args = append(args, "--machine="+name+"@.host")
-		}
-	}
+	args := append([]string{"--no-ask-password"}, ManagerArgs(u, euid, users)...)
 	args = append(args, verb...)
 	return append(args, "--", u.Name)
+}
+
+// ManagerArgs selects the systemd manager of u for systemctl: none for a
+// system unit, --user for the caller's own user manager, and
+// --user --machine=<user>@.host for another user's.
+func ManagerArgs(u procs.Unit, euid int, users inventory.UserResolver) []string {
+	if !u.UserManager {
+		return nil
+	}
+	if u.User == euid {
+		return []string{"--user"}
+	}
+	name := ""
+	if users != nil {
+		name = users.Name(u.User)
+	}
+	if name == "" || name == "?" {
+		name = fmt.Sprint(u.User)
+	}
+	return []string{"--user", "--machine=" + name + "@.host"}
 }
 
 // SystemctlCommand is how the stop command is shown to the user.

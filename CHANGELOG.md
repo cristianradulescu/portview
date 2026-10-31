@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Equivalent commands in the details pane: the `ss` command matching the
+  current filters, and for the selected socket `ss`, `lsof`, its line in
+  the raw `/proc/net` table (address decoded from hex), the `find` that
+  maps its inode to a process, and `ps`, `/proc`, `systemctl`,
+  `journalctl`, `docker` and Docker API (`curl --unix-socket`) commands
+  for its process, unit and container. Names are shell-quoted.
+- Command log panel: what portview read and did, as commands, including
+  every kill-dialog action and its result.
+- The kill dialog shows the exact command of the highlighted option.
+- `y` copies a command (wl-copy, xclip, xsel, or OSC 52).
+- `Tab` cycles the list, the details pane and the command log.
+
+### Security
+
+- Container IDs from the Docker API that are not 64 hex digits are
+  ignored, so a malformed ID can never reach a command or an API path.
+
 ## [0.1.1] - 2026-10-31
 
 ### Fixed
