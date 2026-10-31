@@ -290,3 +290,13 @@ func atoiOr(s string, def int) int {
 // ClockTicks is the kernel's USER_HZ: the unit of the clock-tick values in
 // /proc (timers in /proc/net/tcp, start times), usually 100 per second.
 func (s Scanner) ClockTicks() int64 { return clockTicks(s.root()) }
+
+// Cmdline reads the command line of pid, quoted for display; "" if it
+// cannot be read (exited, or a kernel thread).
+func (s Scanner) Cmdline(pid int) string {
+	b, err := os.ReadFile(filepath.Join(s.root(), strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return ""
+	}
+	return QuoteArgs(ParseCmdline(b))
+}

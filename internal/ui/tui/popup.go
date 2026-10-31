@@ -31,8 +31,10 @@ func (p *Popup) Close(g *gocui.Gui, focusView string) error {
 	if err := DeleteView(g, p.Name); err != nil {
 		return err
 	}
-	_, err := g.SetCurrentView(focusView)
-	return err
+	if _, err := g.SetCurrentView(focusView); err != nil && !IsUnknownView(err) {
+		return err // an unknown view: the manager picks the focus
+	}
+	return nil
 }
 
 // Scroll moves the popup content by delta lines.

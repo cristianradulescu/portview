@@ -35,8 +35,8 @@ func (p *Prompt) Close(g *gocui.Gui, focusView string) error {
 		return err
 	}
 	if focusView != "" {
-		if _, err := g.SetCurrentView(focusView); err != nil {
-			return err
+		if _, err := g.SetCurrentView(focusView); err != nil && !IsUnknownView(err) {
+			return err // an unknown view: the manager picks the focus
 		}
 	}
 	return nil

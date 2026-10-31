@@ -66,8 +66,34 @@ func (a *App) registerKeys() {
 		tui.Binding{View: "", Keys: []any{gocui.KeyCtrlC}, Handler: quit,
 			Label: "^c", Description: "quit", Section: gen},
 	)
+	// The events tab shares the filter and general keys of the list.
+	shared := map[any]bool{'/': true, gocui.KeyEsc: true, 'l': true, 'e': true, 'a': true, 't': true, 'u': true,
+		'4': true, '6': true, gocui.KeyTab: true, 'y': true, 'r': true, '?': true, 'q': true}
+	for _, b := range a.keys.Bindings() {
+		if b.View == viewList && len(b.Keys) > 0 && shared[b.Keys[0]] {
+			b.View, b.Label, b.Description = viewEvents, "", "" // listed once in the help
+			a.keys.Add(b)
+		}
+	}
+	const evSec = "Events tab"
+	a.keys.Add(
+		tui.Binding{View: viewList, Keys: []any{']', '['}, Handler: func() error { return a.switchTab(tabEvents) },
+			Label: "[ ]", Description: "switch between the Sockets and Events tabs", Section: nav},
+		tui.Binding{View: viewEvents, Keys: []any{']', '['}, Handler: func() error { return a.switchTab(tabSockets) }, Hint: "[ ] sockets"},
+		tui.Binding{View: viewEvents, Keys: []any{'j', gocui.KeyArrowDown}, Handler: do(func() { a.moveEvent(1) }),
+			Label: "j/k", Description: "next / previous event (newest first)", Section: evSec},
+		tui.Binding{View: viewEvents, Keys: []any{'k', gocui.KeyArrowUp}, Handler: do(func() { a.moveEvent(-1) })},
+		tui.Binding{View: viewEvents, Keys: []any{gocui.KeyPgdn, gocui.KeyCtrlD}, Handler: do(func() { a.moveEvent(a.ev.height - 1) })},
+		tui.Binding{View: viewEvents, Keys: []any{gocui.KeyPgup, gocui.KeyCtrlU}, Handler: do(func() { a.moveEvent(1 - a.ev.height) })},
+		tui.Binding{View: viewEvents, Keys: []any{'g', gocui.KeyHome}, Handler: do(func() { a.moveEvent(-len(a.ev.events)) }),
+			Label: "g", Description: "newest event (and follow new ones)", Section: evSec},
+		tui.Binding{View: viewEvents, Keys: []any{'G', gocui.KeyEnd}, Handler: do(func() { a.moveEvent(len(a.ev.events)) })},
+		tui.Binding{View: viewEvents, Keys: []any{gocui.KeyEnter}, Handler: a.jumpToSocket,
+			Label: "Enter", Description: "show the event's socket in the list, if it is still open", Section: evSec, Hint: "Enter socket"},
+	)
+
 	// Details pane (focused with Tab).
-	toList := func() error { return a.focus(viewList) }
+	toList := func() error { return a.focus(a.leftView()) }
 	a.keys.Add(
 		tui.Binding{View: viewDetails, Keys: []any{'j', gocui.KeyArrowDown}, Handler: do(func() { a.scrollDetails(1) }),
 			Label: "j/k", Description: "scroll", Section: "Details pane"},
@@ -121,7 +147,7 @@ func quit() error { return gocui.ErrQuit }
 
 func helpText(k *tui.Keymap) string {
 	var sb strings.Builder
-	sb.WriteString(k.Help(viewList, viewDetails, viewLog, viewDialog, ""))
+	sb.WriteString(k.Help(viewList, viewEvents, viewDetails, viewLog, viewDialog, ""))
 	sb.WriteString("\n" + tui.Bold("Exposure") + "\n")
 	for _, x := range []inventory.Exposure{inventory.ExposureAll, inventory.ExposureInterface, inventory.ExposureLoopback, inventory.ExposureNamespace} {
 		sb.WriteString("  " + tui.Color(tui.PadRight(x.String(), 9), exposureColor(x)) + exposureDescription(x) + "\n")

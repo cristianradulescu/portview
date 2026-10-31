@@ -104,6 +104,8 @@ in bold.
 | `Tab` | focus the details pane (`j`/`k`, `PgUp`/`PgDn` scroll), then the command log; `Esc` goes back |
 | `y` | copy one of the equivalent commands (see [Equivalent commands](#equivalent-commands)) |
 | `i` | inspect the socket's raw kernel line, every field explained (see [Kernel view](#kernel-view)) |
+| `[` / `]` | switch between the Sockets and Events tabs (see [Events](#events)) |
+| `Enter` | in the Events tab: show the event's socket in the list, if it is still open |
 | `x` | stop what holds the selected socket (see [Stopping a process](#stopping-a-process)) |
 | `r` | refresh now |
 | `?` | help |
@@ -116,6 +118,27 @@ all of them.
 
 Exposure colors: **red** means all interfaces, **yellow** one interface,
 **green** loopback only, and **cyan** another network namespace.
+
+### Events
+
+The Events tab (`]`) is a timeline of sockets that opened and closed
+while portview was running, newest first: it answers "what opened :8080
+two minutes ago?" after the fact. Each event keeps the socket's owner as
+it was (PID, process, user, container) and, for listening sockets, the
+command line, so a server that has since exited can still be identified.
+
+The list's filters apply to the events too, so by default you see
+listeners starting and stopping; `e` or `a` include connections. The
+selection follows the newest event until you move it, then stays on the
+same event as new ones arrive (`g` follows again). `Enter` jumps to an
+event's socket if it is still open.
+
+Events are found by comparing consecutive refreshes (keyed by socket
+inode, so a connection changing state is not an event), so a socket that
+opens and closes within one `--interval` is not seen. The last 1000 events
+are kept. The closest shell equivalents are `watch -d -n 2 ss -tulnp`,
+which highlights changes, and `sudo ss -E`, which prints TCP sockets as
+the kernel destroys them.
 
 ### Equivalent commands
 

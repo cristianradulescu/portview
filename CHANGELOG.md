@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     portview.
 - Equivalent commands for these: `getent services`, `sysctl`, `pstree`,
   `getpcaps`, `prlimit` and `/proc/<pid>/ns`.
+- Events tab (`[`/`]`): sockets that opened and closed while portview
+  runs, newest first, filtered like the list, with the owner and (for
+  listeners) the command line recorded at the time; `Enter` jumps to a
+  socket that is still open. The selection follows new events or stays
+  put.
 
 ### Fixed
 

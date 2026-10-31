@@ -118,3 +118,27 @@ func (m *Model) Top() { m.list.Select(0, len(m.rows), m.height) }
 
 // Bottom selects the last row.
 func (m *Model) Bottom() { m.list.Select(len(m.rows)-1, len(m.rows), m.height) }
+
+// Has reports whether the current snapshot contains the socket k.
+func (m *Model) Has(k inventory.Key) bool {
+	if m.snap == nil {
+		return false
+	}
+	for i := range m.snap.Entries {
+		if m.snap.Entries[i].Key() == k {
+			return true
+		}
+	}
+	return false
+}
+
+// SelectKey selects the row of socket k; false if it is not shown.
+func (m *Model) SelectKey(k inventory.Key) bool {
+	for i := range m.rows {
+		if m.rows[i].Key() == k {
+			m.list.Select(i, len(m.rows), m.height)
+			return true
+		}
+	}
+	return false
+}

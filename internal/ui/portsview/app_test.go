@@ -188,8 +188,10 @@ func TestAppFilterPromptAndHelp(t *testing.T) {
 
 	_ = press(t, a, viewList, '?')
 	out = draw(t, g)
-	if !strings.Contains(out, "Help") || !strings.Contains(out, "IPv4 only") || !strings.Contains(out, "loopback only") {
-		t.Errorf("help popup:\n%s", out)
+	help := viewText(t, g, viewHelp) // the whole popup; it scrolls
+	if !strings.Contains(out, "Help") || !strings.Contains(help, "IPv4 only") || !strings.Contains(help, "loopback only") ||
+		!strings.Contains(help, "show the event's socket in the list") {
+		t.Errorf("help popup:\n%s", help)
 	}
 	_ = press(t, a, viewHelp, gocui.KeyEsc)
 	draw(t, g)
