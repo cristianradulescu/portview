@@ -179,3 +179,44 @@ func TestFilterMatchesContainerName(t *testing.T) {
 		t.Errorf("filter by container name matched %d entries, want 5", len(got))
 	}
 }
+
+func TestContainerAnnotatorRejectsSpoofing(t *testing.T) {
+	const host = 1
+	list := []docker.Container{webContainer()}
+	mk := func(local string, uid uint32, owner *procs.Process) Entry {
+		ap := netip.MustParseAddrPort(local)
+		e := Entry{Socket: sockets.Socket{Proto: sockets.TCP, Family: sockets.IPv4, State: sockets.StateListen,
+			Local: ap, NetNS: host, Inode: 1, UID: uid}, HostNetNS: true}
+		if owner != nil {
+			e.Owners, e.Primary = []*procs.Process{owner}, owner
+		}
+		return e
+	}
+	// A user names a cgroup in their delegated subtree after a real container.
+	fakeScope := &procs.Process{PID: 700, Comm: "nc", UID: 1000, Loaded: true, NetNS: host,
+		Cgroup: "/user.slice/user-1000.slice/user@1000.service/app.slice/docker-" + ctrID + ".scope"}
+	// A user process calling itself docker-proxy on a published port.
+	fakeProxy := &procs.Process{PID: 701, Comm: "docker-proxy", UID: 1000, Loaded: true, NetNS: host}
+	// Rootless podman: kept, but never named after a Docker container.
+	podman := &procs.Process{PID: 702, Comm: "srv", UID: 1000, Loaded: true, NetNS: host,
+		Cgroup: "/user.slice/user-1000.slice/user@1000.service/user.slice/libpod-" + ctrID + ".scope"}
+	snap := &Snapshot{
+		Procs: &procs.Table{HostNetNS: host, Procs: map[int]*procs.Process{700: fakeScope, 701: fakeProxy, 702: podman},
+			Namespaces: []procs.Namespace{{Key: host, PIDs: []int{700, 701, 702}}}},
+		Entries: []Entry{
+			mk("0.0.0.0:7000", 1000, fakeScope), // 0
+			mk("0.0.0.0:8080", 1000, fakeProxy), // 1: published port, user's socket
+			mk("0.0.0.0:8080", 1000, nil),       // 2: same, owner hidden
+			mk("0.0.0.0:7001", 1000, podman),    // 3
+		},
+	}
+	(&ContainerAnnotator{Docker: &fakeDocker{list: list}}).Annotate(context.Background(), snap)
+	for i := 0; i < 3; i++ {
+		if c := snap.Entries[i].Container; c != nil {
+			t.Errorf("entry %d attributed to %+v", i, c)
+		}
+	}
+	if c := snap.Entries[3].Container; c == nil || c.Runtime != "podman" || c.Name != "" {
+		t.Errorf("rootless podman: %+v (must not take the Docker name)", c)
+	}
+}

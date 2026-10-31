@@ -42,6 +42,12 @@ type Container struct {
 	ID string
 	// Runtime is "docker" or "podman".
 	Runtime string
+	// Delegated is set when the cgroup lies inside a user manager's
+	// subtree (user@UID.service). systemd delegates that subtree to the
+	// user, who can create cgroups with any name there, so a "docker-<id>"
+	// segment in it proves nothing about the system's Docker containers.
+	// Rootless containers (podman, rootless Docker) live there too.
+	Delegated bool
 }
 
 // ShortID is the 12-character ID shown by `docker ps`.
@@ -67,7 +73,10 @@ func ParseCgroupPath(path string) (Unit, Container) {
 	segs := strings.Split(strings.Trim(path, "/"), "/")
 	for i, seg := range segs {
 		switch {
-		case strings.HasPrefix(seg, "user@") && strings.HasSuffix(seg, ".service"):
+		// Only the first user@UID.service is the manager: below it the
+		// user names cgroups freely, and a nested "user@0.service" must
+		// not redirect systemctl to another user's manager.
+		case !u.UserManager && strings.HasPrefix(seg, "user@") && strings.HasSuffix(seg, ".service"):
 			u.UserManager = true
 			u.User = atoiOr(strings.TrimSuffix(strings.TrimPrefix(seg, "user@"), ".service"), -1)
 			u.Name = "" // units below belong to the user manager
@@ -75,7 +84,7 @@ func ParseCgroupPath(path string) (Unit, Container) {
 			u.Name = termsafe.String(seg)
 		}
 		if id, rt, ok := containerFromSegment(seg, segs, i); ok {
-			c = Container{ID: id, Runtime: rt}
+			c = Container{ID: id, Runtime: rt, Delegated: u.UserManager}
 		}
 	}
 	if u.UserManager && u.Name == "" {

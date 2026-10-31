@@ -97,13 +97,17 @@ func (a *ContainerAnnotator) Annotate(ctx context.Context, snap *Snapshot) {
 		e := &snap.Entries[i]
 		var c procs.Container
 		if e.Primary != nil {
-			c = e.Primary.Container()
+			c = trustedContainer(e.Primary)
 		}
 		if c.ID == "" && !e.HostNetNS {
 			c = nsContainer[e.NetNS]
 		}
 		if c.ID != "" {
-			e.Container = newRef(c.ID, c.Runtime, byID[c.ID])
+			var ct *docker.Container
+			if c.Runtime == "docker" {
+				ct = byID[c.ID] // never borrow a Docker name for a podman ID
+			}
+			e.Container = newRef(c.ID, c.Runtime, ct)
 			continue
 		}
 		if e.HostNetNS && e.Listening() {
@@ -163,7 +167,7 @@ func namespaceContainers(t *procs.Table) map[uint64]procs.Container {
 		}
 		for _, pid := range ns.PIDs {
 			if p := t.Procs[pid]; p != nil && p.Loaded {
-				if c := p.Container(); c.ID != "" {
+				if c := trustedContainer(p); c.ID != "" {
 					out[ns.Key] = c
 					break
 				}
@@ -173,10 +177,30 @@ func namespaceContainers(t *procs.Table) map[uint64]procs.Container {
 	return out
 }
 
+// trustedContainer is the container of p, unless it is a Docker container
+// claimed from a cgroup in a user-delegated subtree: any user can create
+// "docker-<id>.scope" there, and trusting it would let them pass their own
+// socket off as someone else's container (and have `docker stop` offered
+// for it). Rootless podman containers, which always live there, are kept:
+// they are only ever shown by ID and never stopped from portview.
+func trustedContainer(p *procs.Process) procs.Container {
+	c := p.Container()
+	if c.Delegated && c.Runtime == "docker" {
+		return procs.Container{}
+	}
+	return c
+}
+
 // publishedBy finds the container publishing the host port e listens on.
-// A visible owner other than docker-proxy rules the match out.
+// The socket must belong to root, as docker-proxy's do: an unprivileged
+// process on a published port (possible when Docker's userland proxy is
+// disabled) is not the mapping, whatever it calls itself. A visible owner
+// other than a root docker-proxy rules the match out too.
 func publishedBy(list []docker.Container, e *Entry) (*docker.Container, *docker.Port) {
-	if e.Primary != nil && e.Primary.Comm != "docker-proxy" {
+	if e.UID != 0 {
+		return nil, nil
+	}
+	if e.Primary != nil && (e.Primary.Comm != "docker-proxy" || e.Primary.UID != 0) {
 		return nil, nil
 	}
 	local := e.Local.Addr().Unmap()

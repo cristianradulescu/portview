@@ -154,7 +154,11 @@ func NewPlan(in PlanInput) *Plan {
 	// --- unit ---
 	// The proxy runs in docker.service: never offer to stop the daemon.
 	if len(p.Owners) > 0 && p.Owners[0].Primary && !forward {
-		if u := p.Owners[0].Unit; u.IsService() && !strings.HasPrefix(u.Name, "user@") {
+		// A user unit must run as its manager's user (a user manager cannot
+		// start processes as anyone else); otherwise the cgroup path is not
+		// what it claims to be.
+		o := p.Owners[0]
+		if u := o.Unit; u.IsService() && !strings.HasPrefix(u.Name, "user@") && (!u.UserManager || u.User == o.UID) {
 			p.Unit = u
 		}
 	}

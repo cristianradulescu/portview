@@ -238,3 +238,13 @@ func TestPlanDockerProxy(t *testing.T) {
 		t.Errorf("unit = %+v, notes = %q", p.Unit, p.Notes)
 	}
 }
+
+func TestPlanUserUnitMustMatchOwner(t *testing.T) {
+	// A root process can't be in a unit of user 1000's manager: the cgroup
+	// path is lying (or stale), so systemctl is not offered.
+	app := proc(2100, 1500, "srv", "/user.slice/user-1000.slice/user@1000.service/app.slice/dev.service")
+	p := NewPlan(PlanInput{Entry: entry(app), Details: fakeProcs{2100: details(app, 0, "srv")}.Details, Privileged: true})
+	if p.Unit.Name != "" || len(p.Options) != 1 {
+		t.Errorf("unit = %+v, options = %q", p.Unit, labels(p))
+	}
+}

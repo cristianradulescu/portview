@@ -199,6 +199,15 @@ list containers and, for the kill action, stop one.
 
 Podman containers (`libpod-<id>.scope`) are identified by ID only.
 
+A container ID is only trusted from cgroups that only root can create.
+Inside a user's own systemd subtree (`user@UID.service`), users can name
+cgroups however they like, so a `docker-<id>.scope` there is ignored.
+Otherwise a user could pass their own socket off as someone else's
+container and get `docker stop` offered for it. For the same reason, a
+published-port socket is only linked to its container when it belongs to
+root, as `docker-proxy`'s sockets do. As a result, containers of rootless
+Docker are not linked.
+
 ## Privileges
 
 portview works without root. A socket's user is visible to everyone, and so

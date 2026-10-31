@@ -36,6 +36,19 @@ func TestParseCgroupPath(t *testing.T) {
 		{"/machine.slice/libpod-" + dockerID + ".scope",
 			Unit{Name: "libpod-" + dockerID + ".scope", User: -1}, Container{ID: dockerID, Runtime: "podman"}},
 		{"/system.slice/docker-notanid.scope", Unit{Name: "docker-notanid.scope", User: -1}, Container{}},
+		// Inside a user's delegated subtree, names are chosen by the user: a
+		// nested user@0.service is just a name, not root's manager...
+		{"/user.slice/user-1000.slice/user@1000.service/app.slice/user@0.service/foo.service",
+			Unit{Name: "foo.service", UserManager: true, User: 1000}, Container{}},
+		{"/user.slice/user-1000.slice/user@1000.service/user@0.service",
+			Unit{Name: "user@0.service", UserManager: true, User: 1000}, Container{}},
+		// ...and container IDs found there are marked as delegated.
+		{"/user.slice/user-1000.slice/user@1000.service/app.slice/docker-" + dockerID + ".scope",
+			Unit{Name: "docker-" + dockerID + ".scope", UserManager: true, User: 1000},
+			Container{ID: dockerID, Runtime: "docker", Delegated: true}},
+		{"/user.slice/user-1000.slice/user@1000.service/user.slice/libpod-" + dockerID + ".scope",
+			Unit{Name: "libpod-" + dockerID + ".scope", UserManager: true, User: 1000},
+			Container{ID: dockerID, Runtime: "podman", Delegated: true}},
 		{"/", Unit{User: -1}, Container{}},
 		{"", Unit{User: -1}, Container{}},
 	}
