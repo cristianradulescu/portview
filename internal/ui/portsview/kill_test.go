@@ -99,6 +99,7 @@ func newKillApp(t *testing.T, r *fakeRunner) (*App, *gocui.Gui) {
 		Details:   killDetails,
 		Users:     testUsers{},
 		Actions:   r,
+		Host:      testHost,
 	})
 	if err != nil {
 		t.Fatal(err)

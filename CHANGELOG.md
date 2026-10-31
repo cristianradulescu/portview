@@ -24,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field decoded and explained, including the unnamed TCP fields (rto,
   ato, congestion window, slow-start threshold or Fast Open queue) and
   UDP's drop counter; values worth a look are highlighted.
+- The details pane explains more:
+  - what the socket's state means;
+  - the service registered for the port in `/etc/services`;
+  - where the port comes from: privileged ports and
+    `CAP_NET_BIND_SERVICE` (held as root, granted, or dropped after
+    binding), ports picked from the ephemeral range, and the server side
+    of accepted connections;
+  - the process's memory, CPU time, open files and limit, effective
+    capabilities, ancestry, children, and namespaces not shared with
+    portview.
+- Equivalent commands for these: `getent services`, `sysctl`, `pstree`,
+  `getpcaps`, `prlimit` and `/proc/<pid>/ns`.
 
 ### Fixed
 

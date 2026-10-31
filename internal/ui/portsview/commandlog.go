@@ -88,6 +88,7 @@ func (a *App) cmdEnv() commands.Env {
 		EUID:         os.Geteuid(),
 		Users:        a.opts.Users,
 		DockerSocket: a.opts.DockerSocket,
+		Host:         a.host,
 	}
 }
 

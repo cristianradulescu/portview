@@ -11,6 +11,7 @@ import (
 	"github.com/cristianradulescu/portview/internal/actions"
 	"github.com/cristianradulescu/portview/internal/commands"
 	"github.com/cristianradulescu/portview/internal/explain"
+	"github.com/cristianradulescu/portview/internal/hostinfo"
 	"github.com/cristianradulescu/portview/internal/inventory"
 	"github.com/cristianradulescu/portview/internal/procs"
 	"github.com/cristianradulescu/portview/internal/sockets"
@@ -64,6 +65,9 @@ type Options struct {
 	// ReadRaw finds a socket's line in the /proc/net table at path and
 	// explains it; defaults to explain.Read on the real /proc.
 	ReadRaw func(path string, s sockets.Socket) (*explain.Report, error)
+	// Host reads service names and port sysctls; defaults to
+	// hostinfo.Read on the real system. Called once per refresh.
+	Host func() *hostinfo.Info
 }
 
 // App is the portview TUI.
@@ -94,6 +98,10 @@ type App struct {
 	// log is the command log; logShown is whether its panel fits.
 	log      commandLog
 	logShown bool
+
+	// host is re-read on every refresh; hz is USER_HZ.
+	host *hostinfo.Info
+	hz   int64
 
 	// details of processes read during the current snapshot, by PID;
 	// cleared on every refresh so they never get older than one interval.
@@ -156,6 +164,9 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 	if opts.ReadRaw == nil {
 		opts.ReadRaw = defaultReadRaw(opts.Users)
 	}
+	if opts.Host == nil {
+		opts.Host = func() *hostinfo.Info { return hostinfo.Read("") }
+	}
 	a := &App{
 		opts:       opts,
 		g:          g,
@@ -165,6 +176,7 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 		ctx:        context.Background(),
 		dialog:     &tui.Dialog{Name: viewDialog},
 		log:        newCommandLog(),
+		hz:         procs.Scanner{}.ClockTicks(),
 	}
 	a.async = func(work func() func() error) {
 		go func() {
@@ -230,6 +242,7 @@ func (a *App) apply(snap *inventory.Snapshot, err error) {
 	a.model.SetSnapshot(snap)
 	a.refreshed = snap.Taken
 	clear(a.details)
+	a.host = a.opts.Host()
 	a.logSnapshot(snap)
 }
 
@@ -392,7 +405,7 @@ func (a *App) renderDetails(v *gocui.View) {
 	if e != nil && e.Key() != a.detailsKey {
 		a.detailsKey, a.detailsOrigin = e.Key(), 0
 	}
-	in := detailsInput{entry: e, snap: a.model.Snapshot(), users: a.opts.Users, now: time.Now()}
+	in := detailsInput{entry: e, snap: a.model.Snapshot(), users: a.opts.Users, now: time.Now(), host: a.host, hz: a.hz}
 	if in.snap != nil {
 		in.privileged = in.snap.Privileged
 	}

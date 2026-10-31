@@ -39,6 +39,9 @@ type Details struct {
 	Cgroup     string
 	Unit       Unit
 	Container  Container
+	// Insight is what explains the process further: resources,
+	// capabilities, ancestry, children, namespaces.
+	Insight Insight
 }
 
 // ErrExited is returned when the process no longer exists.
@@ -77,7 +80,8 @@ func (s Scanner) Details(pid int) (*Details, error) {
 	} else {
 		d.CwdErr = simplifyErr(err)
 	}
-	if b, err := os.ReadFile(filepath.Join(pdir, "stat")); err == nil {
+	stat, _ := os.ReadFile(filepath.Join(pdir, "stat"))
+	if b := stat; b != nil {
 		if ticks, ok := parseStartTicks(b); ok {
 			d.StartTicks = ticks
 			if boot, ok := bootTime(root); ok {
@@ -94,6 +98,7 @@ func (s Scanner) Details(pid int) (*Details, error) {
 			d.ParentComm = termsafe.String(strings.TrimRight(string(b), "\n"))
 		}
 	}
+	d.Insight = s.readInsight(pid, status, stat)
 	return d, nil
 }
 

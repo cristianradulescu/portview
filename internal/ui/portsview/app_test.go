@@ -10,6 +10,7 @@ import (
 
 	"github.com/jesseduffield/gocui"
 
+	"github.com/cristianradulescu/portview/internal/hostinfo"
 	"github.com/cristianradulescu/portview/internal/inventory"
 	"github.com/cristianradulescu/portview/internal/procs"
 	"github.com/cristianradulescu/portview/internal/sockets"
@@ -38,7 +39,18 @@ func fakeDetails(pid int) (*procs.Details, error) {
 		Exe:     "/usr/sbin/nginx", Cwd: "/", State: "S (sleeping)",
 		StartTime: time.Now().Add(-3*time.Hour - 12*time.Minute - 30*time.Second),
 		Unit:      unit,
+		Insight: procs.Insight{
+			RSS: 12 << 20, CPUTicks: 6230, CapEff: 0x1ffffffffff, CapsKnown: true, FDs: 23, MaxFDs: 1024,
+			Ancestors:  []procs.ProcRef{{PID: 1, Comm: "systemd"}},
+			Children:   []procs.ProcRef{{PID: 101, Comm: "nginx"}},
+			Namespaces: []procs.NSInfo{{Type: "net", Shared: true}, {Type: "mnt", Shared: true}},
+		},
 	}, nil
+}
+
+// testHost has the usual Linux defaults and one registered service.
+func testHost() *hostinfo.Info {
+	return hostinfo.New(1024, 32768, 60999, map[string]string{"80/tcp": "http"})
 }
 
 type staticCollector struct{ snap *inventory.Snapshot }
@@ -75,6 +87,7 @@ func newHeadless(t *testing.T, w, h int) (*App, *gocui.Gui) {
 		Interval:  time.Hour,
 		Details:   fakeDetails,
 		Users:     testUsers{},
+		Host:      testHost,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +223,8 @@ func TestAppKeepsDataOnRefreshError(t *testing.T) {
 func TestAppDetailsPane(t *testing.T) {
 	a, g := newHeadless(t, 170, 50)
 	a.apply(testSnapshot(), nil)
-	out := draw(t, g)
+	draw(t, g)
+	out := viewText(t, g, viewDetails) // the whole pane, not just what fits
 	for _, want := range []string{
 		"Process nginx · PID 100",
 		"'nginx: master process /usr/sbin/nginx' -g 'daemon", "            on;'",

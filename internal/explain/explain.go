@@ -284,19 +284,7 @@ func stateMeaning(st sockets.State, proto sockets.Proto) string {
 		}
 		return code
 	}
-	desc := map[sockets.State]string{
-		sockets.StateEstablished: "data flows both ways",
-		sockets.StateSynSent:     "we sent SYN and wait for the peer's SYN-ACK",
-		sockets.StateSynRecv:     "the peer sent SYN, we answered and wait for its ACK",
-		sockets.StateFinWait1:    "we closed and sent FIN",
-		sockets.StateFinWait2:    "our FIN was acknowledged; waiting for the peer to close",
-		sockets.StateTimeWait:    "closed by us first; kept for 60s so late packets of this connection are not mistaken for a new one",
-		sockets.StateClose:       "closed",
-		sockets.StateCloseWait:   "the peer closed, our program has not yet: many of these mean a program forgets to close() connections",
-		sockets.StateLastAck:     "both closed; waiting for the ACK of our FIN",
-		sockets.StateListen:      "waiting for incoming connections",
-		sockets.StateClosing:     "both sides closed at the same time",
-	}[st]
+	desc := StateHelp(st, proto)
 	legend := " (01 ESTABLISHED · 06 TIME_WAIT · 08 CLOSE_WAIT · 0A LISTEN)"
 	if desc == "" {
 		return code + legend

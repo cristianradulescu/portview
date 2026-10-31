@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/cristianradulescu/portview/internal/actions"
+	"github.com/cristianradulescu/portview/internal/hostinfo"
 	"github.com/cristianradulescu/portview/internal/inventory"
 	"github.com/cristianradulescu/portview/internal/procs"
 	"github.com/cristianradulescu/portview/internal/sockets"
@@ -45,6 +46,8 @@ type Env struct {
 	Users inventory.UserResolver
 	// DockerSocket is the Docker API socket; "" when Docker is disabled.
 	DockerSocket string
+	// Host knows the registered service names; nil leaves them out.
+	Host *hostinfo.Info
 }
 
 func (env Env) sudo(cmd string) string {
@@ -181,6 +184,14 @@ func Socket(e *inventory.Entry, snap *inventory.Snapshot, env Env) []Command {
 		add("the same with lsof"+nsNote, inNS(lsof))
 	}
 
+	if e.Listening() {
+		if env.Host.Service(e.Local.Port(), e.Proto.String()) != "" {
+			add("the service registered for this port in /etc/services", fmt.Sprintf("getent services %d/%s", e.Local.Port(), e.Proto))
+		}
+		add("ports below the first need CAP_NET_BIND_SERVICE; the range is where the kernel picks ports for outgoing connections",
+			"sysctl net.ipv4.ip_unprivileged_port_start net.ipv4.ip_local_port_range")
+	}
+
 	// the raw kernel table
 	add(fmt.Sprintf("the kernel's table, which ss and portview read: %s is %s in hex, state %02X is %s (i explains every field)",
 		sockets.FormatAddrPort(e.Local), sockets.FormatProcNetAddr(e.Local, e.Family), uint8(e.State), e.State),
@@ -246,6 +257,16 @@ func Process(e *inventory.Entry, d *procs.Details, env Env) []Command {
 	}
 	add("its executable and working directory (root-only for other users' processes)", readlink)
 	add("its cgroup, which names the systemd unit and container", fmt.Sprintf("cat /proc/%d/cgroup", pid))
+	add("its ancestry and children", fmt.Sprintf("pstree -sp %d", pid))
+	add("its effective capabilities (CapEff in /proc/<pid>/status, decoded)", fmt.Sprintf("getpcaps %d", pid))
+	others := func(cmd string) string {
+		if d.UID != env.EUID {
+			return "sudo " + cmd
+		}
+		return cmd
+	}
+	add("how many files it has open, and its limit", others(fmt.Sprintf("ls /proc/%d/fd | wc -l", pid))+fmt.Sprintf("; prlimit --pid %d --nofile", pid))
+	add("its namespaces; compare with ls -l /proc/self/ns", others(fmt.Sprintf("ls -l /proc/%d/ns", pid)))
 	add("all its sockets", env.sudo("ss -tuanp")+" | grep "+Quote(fmt.Sprintf("pid=%d,", pid)))
 	if len(e.Owners) > 1 {
 		pids := make([]string, len(e.Owners))

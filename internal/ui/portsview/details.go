@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"strings"
 	"time"
 
+	"github.com/cristianradulescu/portview/internal/explain"
+	"github.com/cristianradulescu/portview/internal/hostinfo"
 	"github.com/cristianradulescu/portview/internal/inventory"
 	"github.com/cristianradulescu/portview/internal/procs"
 	"github.com/cristianradulescu/portview/internal/sockets"
@@ -25,6 +28,10 @@ type detailsInput struct {
 	users      inventory.UserResolver
 	now        time.Time
 	privileged bool
+	// host holds service names and port sysctls; nil if unknown.
+	host *hostinfo.Info
+	// hz is USER_HZ, for CPU time.
+	hz int64
 	// width of the pane in cells; long plain values wrap with a hanging
 	// indent so they stay aligned with their label.
 	width int
@@ -54,6 +61,12 @@ func renderDetails(in detailsInput) string {
 		}
 		sb.WriteString(tui.Bold(title) + "\n")
 	}
+	// note adds a dim explanation under the value column.
+	note := func(text string) {
+		for _, l := range tui.WrapHanging(text, in.width-len(indent), "") {
+			sb.WriteString(indent + tui.Dim(l) + "\n")
+		}
+	}
 
 	// --- socket ---
 	section("Socket")
@@ -63,6 +76,15 @@ func renderDetails(in detailsInput) string {
 	}
 	kv("Endpoint", e.Netid()+" "+endpoint)
 	kv("State", e.State.String())
+	if help := explain.StateHelp(e.State, e.Proto); help != "" {
+		note(help)
+	}
+	if name := in.host.Service(e.Local.Port(), e.Proto.String()); name != "" {
+		kv("Service", name+tui.Dim(fmt.Sprintf(" (registered for %d/%s in /etc/services)", e.Local.Port(), e.Proto)))
+	}
+	if why := explain.PortReason(explain.PortInput{Entry: e, Proc: in.proc, Host: in.host, Listener: hasListener(snap, e)}); why != "" {
+		kv("Port", why)
+	}
 	kv("Exposure", tui.Color(exposureDescription(e.Exposure), exposureColor(e.Exposure)))
 	kv("Netns", snap.NetNSLabel(e.NetNS))
 	if e.Inode != 0 {
@@ -126,6 +148,7 @@ func renderDetails(in detailsInput) string {
 		sb.WriteString(tui.Dim("  "+msg) + "\n")
 	default:
 		writeProcess(&sb, kv, section, in)
+		writeInsight(kv, note, in)
 	}
 
 	// --- shared owners ---
@@ -192,6 +215,125 @@ func writeProcess(sb *strings.Builder, kv func(k, v string), section func(string
 	case d.Unit.Name != "":
 		kv("Unit", d.Unit.String())
 	}
+}
+
+// writeInsight adds resources, capabilities, family and namespaces.
+func writeInsight(kv func(k, v string), note func(string), in detailsInput) {
+	d := in.proc
+	ins := d.Insight
+	var res []string
+	if ins.RSS > 0 {
+		res = append(res, humanBytes(ins.RSS)+" memory")
+	}
+	if in.hz > 0 {
+		res = append(res, humanDuration(time.Duration(ins.CPUTicks)*time.Second/time.Duration(in.hz))+" CPU")
+	}
+	switch {
+	case ins.FDs >= 0 && ins.MaxFDs == math.MaxUint64:
+		res = append(res, fmt.Sprintf("%d open files (no limit)", ins.FDs))
+	case ins.FDs >= 0 && ins.MaxFDs > 0:
+		res = append(res, fmt.Sprintf("%d of %d open files", ins.FDs, ins.MaxFDs))
+	case ins.FDs >= 0:
+		res = append(res, fmt.Sprintf("%d open files", ins.FDs))
+	case ins.MaxFDs > 0 && ins.MaxFDs != math.MaxUint64:
+		res = append(res, fmt.Sprintf("? of %d open files", ins.MaxFDs))
+	}
+	if len(res) > 0 {
+		kv("Resources", strings.Join(res, " · "))
+	}
+
+	if ins.CapsKnown {
+		switch {
+		case procs.AllCaps(ins.CapEff) && d.UID == 0:
+			kv("Caps", "all (it runs as root)")
+		case procs.AllCaps(ins.CapEff):
+			kv("Caps", "all")
+		case ins.CapEff == 0:
+			kv("Caps", "none: an ordinary unprivileged process")
+		default:
+			kv("Caps", strings.Join(procs.CapNames(ins.CapEff), ", "))
+		}
+	}
+
+	if len(ins.Ancestors) > 0 {
+		chain := make([]string, 0, len(ins.Ancestors)+1)
+		for i := len(ins.Ancestors) - 1; i >= 0; i-- {
+			a := ins.Ancestors[i]
+			chain = append(chain, fmt.Sprintf("%s(%d)", a.Comm, a.PID))
+		}
+		chain = append(chain, fmt.Sprintf("%s(%d)", orQ(d.Comm), d.PID))
+		kv("Ancestry", strings.Join(chain, " → "))
+	}
+	if n := len(ins.Children); n > 0 {
+		const maxChildren = 6
+		parts := make([]string, 0, min(n, maxChildren))
+		for i, c := range ins.Children {
+			if i == maxChildren {
+				break
+			}
+			parts = append(parts, fmt.Sprintf("%d %s", c.PID, c.Comm))
+		}
+		v := fmt.Sprintf("%d: %s", n, strings.Join(parts, ", "))
+		if n > maxChildren {
+			v += ", …"
+		}
+		kv("Children", v)
+	}
+
+	switch {
+	case ins.NSErr != nil && !in.privileged:
+		kv("Isolation", tui.Dim("? (its namespaces need root to read: rerun with sudo)"))
+	case ins.NSErr != nil:
+		kv("Isolation", tui.Dim("? ("+ins.NSErr.Error()+")"))
+	case len(ins.Namespaces) > 0:
+		var own, shared []string
+		for _, ns := range ins.Namespaces {
+			if ns.Shared {
+				shared = append(shared, ns.Type)
+			} else {
+				own = append(own, ns.Type)
+			}
+		}
+		if len(own) == 0 {
+			kv("Isolation", "none: the same namespaces as portview")
+		} else {
+			kv("Isolation", "its own "+strings.Join(own, ", ")+" namespaces")
+			msg := "Isolated from portview in these namespaces, as containers and sandboxes are."
+			if len(shared) > 0 {
+				msg += " Shared: " + strings.Join(shared, ", ") + "."
+			}
+			note(msg)
+		}
+	}
+}
+
+// hasListener reports whether a socket in e's namespace listens on e's
+// local port (making e an accepted connection).
+func hasListener(snap *inventory.Snapshot, e *inventory.Entry) bool {
+	if e.Listening() || snap == nil {
+		return false
+	}
+	for i := range snap.Entries {
+		o := &snap.Entries[i]
+		if o.Listening() && o.Proto == e.Proto && o.NetNS == e.NetNS && o.Local.Port() == e.Local.Port() {
+			return true
+		}
+	}
+	return false
+}
+
+// humanBytes renders n in KiB/MiB/GiB with one decimal.
+func humanBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func pathOrReason(path string, err error, privileged bool) string {

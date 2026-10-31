@@ -58,11 +58,26 @@ The socket list is on the left and details for the selected socket are on
 the right. The details pane is hidden when the terminal is narrower than 110
 columns. It shows:
 
-- **The socket:** endpoint, state, exposure, network namespace, inode and queue sizes.
+- **The socket:** endpoint, state, exposure, network namespace, inode and queue sizes, plus:
+  - what the state means (CLOSE-WAIT piling up is a program not closing
+    connections; TIME-WAIT is normal);
+  - the service registered for the port in `/etc/services`;
+  - where the port comes from: a port below
+    `net.ipv4.ip_unprivileged_port_start` (1024) needs
+    `CAP_NET_BIND_SERVICE`, and the pane says whether the process has it
+    as root, was granted it, or bound the port before dropping it (like
+    nginx's workers); an outgoing connection's port was picked by the
+    kernel from `net.ipv4.ip_local_port_range`; an accepted connection
+    uses the port a program here listens on.
 - **The owning process** (the primary one when several share the socket):
   - full command line, executable, working directory, user, start time and parent;
   - its systemd unit, from `/proc/<pid>/cgroup`;
-  - its container ID, when it runs in Docker or Podman.
+  - its container ID, when it runs in Docker or Podman;
+  - memory, CPU time, and open files against its limit;
+  - its effective capabilities, decoded from `/proc/<pid>/status`;
+  - its ancestry (`systemd(1) → containerd-shim(4100) → nginx(812)`) and children;
+  - its isolation: the namespaces it does not share with portview, as
+    containers and sandboxes do.
 - **All processes sharing the socket**, such as the workers of a forking server.
 - **The process's other sockets.**
 
