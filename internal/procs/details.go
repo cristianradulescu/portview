@@ -281,3 +281,7 @@ func atoiOr(s string, def int) int {
 	}
 	return def
 }
+
+// ClockTicks is the kernel's USER_HZ: the unit of the clock-tick values in
+// /proc (timers in /proc/net/tcp, start times), usually 100 per second.
+func (s Scanner) ClockTicks() int64 { return clockTicks(s.root()) }

@@ -142,10 +142,8 @@ func Socket(e *inventory.Entry, snap *inventory.Snapshot, env Env) []Command {
 	// Sockets in another network namespace are only visible to ss and
 	// lsof run inside it; /proc/<pid>/net/* shows them from anywhere.
 	leader := 0
-	if snap != nil && !e.HostNetNS {
-		if ns, ok := snap.Procs.Namespace(e.NetNS); ok && len(ns.PIDs) > 0 {
-			leader = ns.PIDs[0]
-		}
+	if !e.HostNetNS {
+		leader = snap.Leader(e.NetNS)
 	}
 	inNS := func(cmd string) string {
 		if leader > 0 {
@@ -184,19 +182,9 @@ func Socket(e *inventory.Entry, snap *inventory.Snapshot, env Env) []Command {
 	}
 
 	// the raw kernel table
-	table := sockets.ProcNetTable(e.Proto, e.Family)
-	path := "/proc/net/" + table
-	if leader > 0 {
-		path = fmt.Sprintf("/proc/%d/net/%s", leader, table)
-	}
-	local := sockets.FormatProcNetAddr(e.Local, e.Family)
-	match := fmt.Sprintf(`$2 == "%s"`, local)
-	if !e.Listening() {
-		match += fmt.Sprintf(` && $3 == "%s"`, sockets.FormatProcNetAddr(e.Remote, e.Family))
-	}
-	add(fmt.Sprintf("the kernel's table, which ss and portview read: %s is %s in hex, state %02X is %s",
-		sockets.FormatAddrPort(e.Local), local, uint8(e.State), e.State),
-		fmt.Sprintf("awk %s %s", Quote("NR == 1 || "+match), path))
+	add(fmt.Sprintf("the kernel's table, which ss and portview read: %s is %s in hex, state %02X is %s (i explains every field)",
+		sockets.FormatAddrPort(e.Local), sockets.FormatProcNetAddr(e.Local, e.Family), uint8(e.State), e.State),
+		RawLine(e, leader))
 
 	// the owner, the way portview finds it
 	if e.Inode != 0 {
@@ -204,6 +192,27 @@ func Socket(e *inventory.Entry, snap *inventory.Snapshot, env Env) []Command {
 			env.sudo(fmt.Sprintf(`find /proc/[0-9]*/fd -lname 'socket:\[%d\]' 2>/dev/null`, e.Inode)))
 	}
 	return out
+}
+
+// TablePath is the /proc file listing e: /proc/net/<table> for the host
+// namespace, /proc/<leader>/net/<table> for another one (readable without
+// root).
+func TablePath(e *inventory.Entry, leader int) string {
+	table := sockets.ProcNetTable(e.Proto, e.Family)
+	if leader > 0 {
+		return fmt.Sprintf("/proc/%d/net/%s", leader, table)
+	}
+	return "/proc/net/" + table
+}
+
+// RawLine is the awk command printing e's line of the kernel table, with
+// the header.
+func RawLine(e *inventory.Entry, leader int) string {
+	match := fmt.Sprintf(`$2 == "%s"`, sockets.FormatProcNetAddr(e.Local, e.Family))
+	if !e.Listening() {
+		match += fmt.Sprintf(` && $3 == "%s"`, sockets.FormatProcNetAddr(e.Remote, e.Family))
+	}
+	return fmt.Sprintf("awk %s %s", Quote("NR == 1 || "+match), TablePath(e, leader))
 }
 
 // ssFilter selects exactly e in an ss filter expression: "sport = :80"
@@ -264,10 +273,13 @@ func Unit(u procs.Unit, env Env) []Command {
 			journal = fmt.Sprintf("journalctl _UID=%d _SYSTEMD_USER_UNIT=%s -n 50 --no-pager", u.User, name)
 		}
 	}
+	// "--" ends the options: a unit named "--host=…" (users name units
+	// freely in their own subtree) must stay a unit name. journalctl -u
+	// always takes the next word as its value.
 	return []Command{
-		{"the unit's state and its processes", sc + "status " + name},
+		{"the unit's state and its processes", sc + "status -- " + name},
 		{"its recent log", journal},
-		{"whether systemd restarts it, and its main PID", sc + "show -p Restart,MainPID,ActiveState " + name},
+		{"whether systemd restarts it, and its main PID", sc + "show -p Restart,MainPID,ActiveState -- " + name},
 	}
 }
 
@@ -277,7 +289,7 @@ func Container(c *inventory.ContainerRef, env Env) []Command {
 	if c.Runtime == "podman" {
 		bin = "podman"
 	}
-	ref := Quote(c.Label())
+	ref := "-- " + Quote(c.Label()) // "--": a name is never an option
 	out := []Command{
 		{"the container", bin + " ps --filter " + Quote("id="+c.ID)},
 		{"its configuration, state and networks", bin + " inspect " + ref},
@@ -307,7 +319,7 @@ func Option(o *actions.Option, sig syscall.Signal, env Env) []string {
 	case actions.StopUnit:
 		return []string{Systemctl(o.Unit, env, "stop")}
 	case actions.StopContainer:
-		cmds := []string{"docker stop " + Quote(o.Container.Label())}
+		cmds := []string{"docker stop -- " + Quote(o.Container.Label())}
 		if env.DockerSocket != "" {
 			cmds = append(cmds, ContainerStop(env, o.Container.ID)+"  # what portview sends")
 		}

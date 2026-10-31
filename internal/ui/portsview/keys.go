@@ -51,6 +51,8 @@ func (a *App) registerKeys() {
 		tui.Binding{View: viewList, Keys: []any{gocui.KeyTab}, Handler: func() error { return a.focus(viewDetails) },
 			Label: "Tab", Description: "focus the details pane (scroll with j/k)", Section: nav, Hint: "Tab details"},
 
+		tui.Binding{View: viewList, Keys: []any{'i'}, Handler: a.openInspect,
+			Label: "i", Description: "inspect: the socket's raw kernel line (/proc/net/*), every field explained", Section: gen},
 		tui.Binding{View: viewList, Keys: []any{'y'}, Handler: a.openCopy,
 			Label: "y", Description: "copy an equivalent shell command (also shown in the details pane)", Section: gen},
 		tui.Binding{View: viewList, Keys: []any{'x'}, Handler: a.openKill,
@@ -84,6 +86,7 @@ func (a *App) registerKeys() {
 		tui.Binding{View: viewDetails, Keys: []any{gocui.KeyEsc}, Handler: toList,
 			Label: "Esc", Description: "back to the socket list", Section: "Details pane", Hint: "Esc back"},
 		tui.Binding{View: viewDetails, Keys: []any{'y'}, Handler: a.openCopy, Hint: "y copy"},
+		tui.Binding{View: viewDetails, Keys: []any{'i'}, Handler: a.openInspect, Hint: "i inspect"},
 		tui.Binding{View: viewDetails, Keys: []any{'x'}, Handler: a.openKill, Hint: "x kill"},
 		tui.Binding{View: viewDetails, Keys: []any{'?'}, Handler: a.openHelp, Hint: "? help"},
 		tui.Binding{View: viewDetails, Keys: []any{'q'}, Handler: quit, Hint: "q quit"},
@@ -108,6 +111,7 @@ func (a *App) registerKeys() {
 	)
 	a.keys.Add(a.prompt.Bindings()...)
 	a.keys.Add(a.help.Bindings(a.g, viewList, gocui.KeyEsc, 'q', '?')...)
+	a.keys.Add(a.inspect.Bindings(a.g, viewList, gocui.KeyEsc, 'q', 'i')...)
 	a.keys.Add(a.dialog.Bindings(a.g, viewList)...)
 	a.keys.Add(tui.Binding{View: viewDialog, Keys: []any{'s'}, Handler: a.cycleSignal,
 		Label: "s", Description: "in the kill dialog: change the signal (SIGTERM, SIGKILL, SIGINT, SIGHUP, SIGQUIT)", Section: "General"})

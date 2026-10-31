@@ -167,7 +167,9 @@ func WrapHanging(text string, width int, indent string) []string {
 		if curW > 0 && curW+uniseg.StringWidth(strings.TrimRight(word, " ")) > limit {
 			flush()
 		}
-		for ww > limit-curW { // word longer than the remaining line
+		// Only the word itself must fit: its trailing space may hang past
+		// the end (it is trimmed), or it would start the next line.
+		for uniseg.StringWidth(strings.TrimRight(word, " ")) > limit-curW { // word longer than the remaining line
 			g := uniseg.NewGraphemes(word)
 			var head strings.Builder
 			hw := 0

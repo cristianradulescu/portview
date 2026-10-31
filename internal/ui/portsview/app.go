@@ -10,6 +10,7 @@ import (
 
 	"github.com/cristianradulescu/portview/internal/actions"
 	"github.com/cristianradulescu/portview/internal/commands"
+	"github.com/cristianradulescu/portview/internal/explain"
 	"github.com/cristianradulescu/portview/internal/inventory"
 	"github.com/cristianradulescu/portview/internal/procs"
 	"github.com/cristianradulescu/portview/internal/sockets"
@@ -25,6 +26,7 @@ const (
 	viewHelp    = "help"
 	viewDialog  = "dialog"
 	viewLog     = "log"
+	viewInspect = "inspect"
 )
 
 // logMinHeight is the height (in rows) below which the command log is
@@ -59,6 +61,9 @@ type Options struct {
 	DockerSocket string
 	// Clipboard copies text and says how; defaults to tui.Copy.
 	Clipboard func(text string) (string, error)
+	// ReadRaw finds a socket's line in the /proc/net table at path and
+	// explains it; defaults to explain.Read on the real /proc.
+	ReadRaw func(path string, s sockets.Socket) (*explain.Report, error)
 }
 
 // App is the portview TUI.
@@ -68,9 +73,10 @@ type App struct {
 	model *Model
 	keys  tui.Keymap
 
-	prompt *tui.Prompt
-	help   *tui.Popup
-	dialog *tui.Dialog
+	prompt  *tui.Prompt
+	help    *tui.Popup
+	inspect *tui.Popup
+	dialog  *tui.Dialog
 
 	// ctx is cancelled when the app quits; background work uses it.
 	ctx context.Context
@@ -147,6 +153,9 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 	if opts.Clipboard == nil {
 		opts.Clipboard = tui.Copy
 	}
+	if opts.ReadRaw == nil {
+		opts.ReadRaw = defaultReadRaw(opts.Users)
+	}
 	a := &App{
 		opts:       opts,
 		g:          g,
@@ -174,6 +183,7 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 		},
 	}
 	a.help = &tui.Popup{Name: viewHelp, Title: " Help · Esc to close "}
+	a.inspect = &tui.Popup{Name: viewInspect, Title: " Kernel view · j/k scroll · Esc to close "}
 	a.dialog.Relayout = func() error { return a.layout(g) }
 
 	g.Highlight = true
@@ -347,6 +357,9 @@ func (a *App) layout(g *gocui.Gui) error {
 		return err
 	}
 	if err := a.help.Layout(g); err != nil {
+		return err
+	}
+	if err := a.inspect.Layout(g); err != nil {
 		return err
 	}
 	return a.dialog.Layout(g)

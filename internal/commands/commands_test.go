@@ -173,28 +173,39 @@ func TestProcessUnitContainer(t *testing.T) {
 	}
 
 	sys := procs.Unit{Name: "nginx.service", User: -1}
-	if got := cmds(Unit(sys, Env{})); !strings.Contains(got, "systemctl status nginx.service\n") ||
+	if got := cmds(Unit(sys, Env{})); !strings.Contains(got, "systemctl status -- nginx.service\n") ||
 		!strings.Contains(got, "journalctl -u nginx.service -n 50 --no-pager\n") {
 		t.Errorf("system unit:\n%s", got)
 	}
 	user := procs.Unit{Name: "dev.service", UserManager: true, User: 1000}
-	if got := cmds(Unit(user, Env{EUID: 1000})); !strings.Contains(got, "systemctl --user status dev.service\n") ||
+	if got := cmds(Unit(user, Env{EUID: 1000})); !strings.Contains(got, "systemctl --user status -- dev.service\n") ||
 		!strings.Contains(got, "journalctl --user -u dev.service") {
 		t.Errorf("own user unit:\n%s", got)
 	}
-	if got := cmds(Unit(user, Env{EUID: 0, Users: users{1000: "alice"}})); !strings.Contains(got, "systemctl --user --machine=alice@.host status dev.service\n") ||
+	if got := cmds(Unit(user, Env{EUID: 0, Users: users{1000: "alice"}})); !strings.Contains(got, "systemctl --user --machine=alice@.host status -- dev.service\n") ||
 		!strings.Contains(got, "journalctl _UID=1000 _SYSTEMD_USER_UNIT=dev.service") {
 		t.Errorf("other user's unit as root:\n%s", got)
 	}
 	hostile := procs.Unit{Name: "x$(id).service", User: -1}
-	if got := cmds(Unit(hostile, Env{})); !strings.Contains(got, "systemctl status 'x$(id).service'") {
+	if got := cmds(Unit(hostile, Env{})); !strings.Contains(got, "systemctl status -- 'x$(id).service'") {
 		t.Errorf("unit name not quoted:\n%s", got)
+	}
+	// A unit name that looks like an option must not become one.
+	optLike := procs.Unit{Name: "--host=x@evil.service", UserManager: true, User: 1000}
+	for _, c := range Unit(optLike, Env{EUID: 1000}) {
+		if strings.Contains(c.Cmd, "systemctl") && !strings.Contains(c.Cmd, " -- --host=x@evil.service") {
+			t.Errorf("option-like unit name not after --: %s", c.Cmd)
+		}
+		if strings.Contains(c.Cmd, "journalctl") && !strings.Contains(c.Cmd, "-u --host=x@evil.service") {
+			t.Errorf("journalctl: %s", c.Cmd)
+		}
 	}
 
 	c := &inventory.ContainerRef{ID: ctrID, Name: "web-1", Runtime: "docker", Forward: &inventory.Forward{ContainerPort: 80, Proto: "tcp"}}
 	got = cmds(Container(c, Env{DockerSocket: "/var/run/docker.sock"}))
 	for _, want := range []string{
-		"docker ps --filter id=" + ctrID + "\n", // plain hex needs no quotes "docker inspect web-1\n", "docker top web-1\n", "docker port web-1\n",
+		"docker ps --filter id=" + ctrID + "\n", // plain hex needs no quotes
+		"docker inspect -- web-1\n", "docker top -- web-1\n", "docker port -- web-1\n",
 		"curl -s --unix-socket /var/run/docker.sock http://localhost/containers/json\n",
 	} {
 		if !strings.Contains(got, want) {
@@ -209,7 +220,7 @@ func TestProcessUnitContainer(t *testing.T) {
 		t.Errorf("ID not path-escaped: %s", got)
 	}
 	pod := &inventory.ContainerRef{ID: ctrID, Runtime: "podman"}
-	if got := cmds(Container(pod, Env{DockerSocket: "/var/run/docker.sock"})); !strings.Contains(got, "podman inspect 4bf8254b1f0f\n") || strings.Contains(got, "curl") {
+	if got := cmds(Container(pod, Env{DockerSocket: "/var/run/docker.sock"})); !strings.Contains(got, "podman inspect -- 4bf8254b1f0f\n") || strings.Contains(got, "curl") {
 		t.Errorf("podman:\n%s", got)
 	}
 }
@@ -226,7 +237,7 @@ func TestOption(t *testing.T) {
 	}
 	ctr := &actions.Option{Kind: actions.StopContainer, Container: &inventory.ContainerRef{ID: ctrID, Name: "web-1"}}
 	got := Option(ctr, 0, env)
-	if len(got) != 2 || got[0] != "docker stop web-1" ||
+	if len(got) != 2 || got[0] != "docker stop -- web-1" ||
 		got[1] != "curl -s --unix-socket /var/run/docker.sock -X POST 'http://localhost/containers/"+ctrID+"/stop?t=10'  # what portview sends" {
 		t.Errorf("container = %q", got)
 	}

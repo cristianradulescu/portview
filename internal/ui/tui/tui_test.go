@@ -240,3 +240,17 @@ func TestDialogEnterUsesCurrentSelection(t *testing.T) {
 		t.Errorf("picked %v, want [b a]", picked)
 	}
 }
+
+func TestWrapHangingExactFit(t *testing.T) {
+	// "aaa bbb" is exactly 7 wide: the space after it must not start the
+	// next line.
+	got := WrapHanging("aaa bbb ccc", 7, "")
+	if strings.Join(got, "|") != "aaa bbb|ccc" {
+		t.Errorf("WrapHanging = %q", got)
+	}
+	for _, l := range WrapHanging("0 connection(s) waiting for the program to accept them; when this reaches the backlog limit", 20, "") {
+		if strings.HasPrefix(l, " ") {
+			t.Errorf("line starts with a space: %q", l)
+		}
+	}
+}

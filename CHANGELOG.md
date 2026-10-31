@@ -20,11 +20,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The kill dialog shows the exact command of the highlighted option.
 - `y` copies a command (wl-copy, xclip, xsel, or OSC 52).
 - `Tab` cycles the list, the details pane and the command log.
+- Kernel view (`i`): the selected socket's raw `/proc/net` line with every
+  field decoded and explained, including the unnamed TCP fields (rto,
+  ato, congestion window, slow-start threshold or Fast Open queue) and
+  UDP's drop counter; values worth a look are highlighted.
+
+### Fixed
+
+- Wrapped text could start with a space when a word exactly filled the
+  previous line, misaligning continuation lines in the details pane.
 
 ### Security
 
 - Container IDs from the Docker API that are not 64 hex digits are
   ignored, so a malformed ID can never reach a command or an API path.
+- Generated `systemctl` and `docker` commands put `--` before unit and
+  container names, so a name that looks like an option (users name units
+  freely in their own systemd subtree) stays a name.
 
 ## [0.1.1] - 2026-10-31
 

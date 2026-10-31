@@ -88,6 +88,7 @@ in bold.
 | `4` / `6` | IPv4 only / IPv6 only (press again to show both) |
 | `Tab` | focus the details pane (`j`/`k`, `PgUp`/`PgDn` scroll), then the command log; `Esc` goes back |
 | `y` | copy one of the equivalent commands (see [Equivalent commands](#equivalent-commands)) |
+| `i` | inspect the socket's raw kernel line, every field explained (see [Kernel view](#kernel-view)) |
 | `x` | stop what holds the selected socket (see [Stopping a process](#stopping-a-process)) |
 | `r` | refresh now |
 | `?` | help |
@@ -130,6 +131,33 @@ uses `wl-copy`, `xclip` or `xsel` when available, and otherwise the OSC 52
 escape sequence, which most terminals support (inside tmux, set
 `set -g set-clipboard on`).
 
+### Kernel view
+
+`i` shows the selected socket's line in `/proc/net/tcp`, `tcp6`, `udp` or
+`udp6`, which is what `ss` and portview are built on, and explains every
+field:
+
+```
+local_address  0100007F:46AE
+               127.0.0.1:18094. The address is printed as one 32-bit number in this
+               machine's byte order (little-endian), so its bytes appear reversed:
+               0100007F → 7F 00 00 01. The port is plain hex: 0x46AE = 18094
+rx_queue       00000003
+               3 connection(s) past the handshake, waiting for the program to
+               accept() them; when this reaches the backlog limit (ss shows it as
+               Send-Q), new connections are dropped
+```
+
+It covers the state code, the queues (and what they mean for a listening
+socket, a connection, TIME-WAIT and UDP), the TCP timers converted from
+clock ticks, retransmissions, the owner's UID, the inode that links the
+socket to a process, and the unnamed fields the kernel prints after the
+header: the retransmission and delayed-ACK timeouts, the congestion window,
+the slow-start threshold or Fast Open queue, and UDP's drop counter. Values
+worth a look (a non-empty accept queue, unread data, retransmissions, UDP
+drops) are shown in yellow. The line is read when you press `i`, and the
+popup ends with the `awk` command that prints it.
+
 ### Command log
 
 The panel below the details lists what portview did, as the command you
@@ -141,7 +169,7 @@ select an entry, `y` copies it, `G` follows new entries again.
 
 The kill dialog also shows the exact command of the highlighted option:
 `kill -TERM 812`, `systemctl --no-ask-password stop -- nginx.service`, or
-`docker stop web-1` with the API request portview sends.
+`docker stop -- web-1` with the API request portview sends.
 
 The log is hidden when the terminal is less than 22 rows tall, and, like
 the details pane, below 110 columns.
@@ -318,6 +346,7 @@ internal/termsafe/     escaping of untrusted strings before they reach the termi
 internal/inventory/    snapshot assembly, filtering, ordering, diff and selection
 internal/actions/      what to offer for a socket (Plan) and doing it: signals, systemctl stop, docker stop
 internal/commands/     the shell commands equivalent to what portview shows and does
+internal/explain/      the raw /proc/net line of a socket, field by field
 internal/ui/tui/       generic gocui building blocks
 internal/ui/portsview/ portview-specific panels and dialogs
 ```

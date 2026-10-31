@@ -46,7 +46,7 @@ func TestEquivalentCommandsInDetails(t *testing.T) {
 	for _, want := range []string{
 		"Equivalent commands", "# this list (host network namespace)", "$ sudo ss -tulnp",
 		"$ sudo ss -tlnpe 'sport = :80'", "/proc/net/tcp", `socket:\[801\]`,
-		"$ ps -o pid,ppid,user,lstart,etime,args -p 100", "$ systemctl status nginx.service",
+		"$ ps -o pid,ppid,user,lstart,etime,args -p 100", "$ systemctl status -- nginx.service",
 	} {
 		if !strings.Contains(details, want) {
 			t.Errorf("details missing %q:\n%s", want, details)

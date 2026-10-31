@@ -213,7 +213,7 @@ func TestAppDetailsPane(t *testing.T) {
 	out := draw(t, g)
 	for _, want := range []string{
 		"Process nginx · PID 100",
-		"'nginx: master process /usr/sbin/nginx' -g 'daemon", "             on;'",
+		"'nginx: master process /usr/sbin/nginx' -g 'daemon", "            on;'",
 		"/usr/sbin/nginx", "root (uid 0)", "3h12m ago", "1 systemd",
 		"nginx.service (systemd service)",
 		"Shared by 2 processes", "www-data", "primary",

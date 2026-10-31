@@ -185,3 +185,18 @@ func ProcNetTable(proto Proto, family Family) string {
 	}
 	return name
 }
+
+// FindLine returns the first line of a /proc/net table (data) whose socket
+// satisfies match, with its 1-based line number (the header is line 1).
+func FindLine(data []byte, proto Proto, family Family, match func(Socket) bool) (line string, n int, s Socket, ok bool) {
+	for i, l := range strings.Split(string(data), "\n") {
+		if i == 0 || strings.TrimSpace(l) == "" {
+			continue
+		}
+		s, err := parseLine(l, proto, family)
+		if err == nil && match(s) {
+			return l, i + 1, s, true
+		}
+	}
+	return "", 0, Socket{}, false
+}

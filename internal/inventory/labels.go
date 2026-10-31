@@ -57,6 +57,19 @@ func (s *Snapshot) NetNSLabel(key uint64) string {
 	return fmt.Sprintf("%s(%d)", name, leader)
 }
 
+// Leader is the first process of a non-host network namespace, through
+// which its /proc/<pid>/net tables are read; 0 for the host namespace or
+// an unknown one.
+func (s *Snapshot) Leader(netns uint64) int {
+	if s == nil || s.Procs == nil || netns == s.Procs.HostNetNS {
+		return 0
+	}
+	if ns, ok := s.Procs.Namespace(netns); ok && len(ns.PIDs) > 0 {
+		return ns.PIDs[0]
+	}
+	return 0
+}
+
 // ContainerLabel is the container column text: the container name (or short
 // ID), prefixed with "→" for a host socket forwarding a published port to it,
 // e.g. "→web-1:80". Empty when the socket is not related to a container.
