@@ -113,6 +113,21 @@ func TestDetails(t *testing.T) {
 	if d.Unit.Name != "nginx.service" || d.Container.ID != "" {
 		t.Errorf("unit/container = %+v %+v", d.Unit, d.Container)
 	}
+	if d.StartTicks != 250 {
+		t.Errorf("StartTicks = %d, want 250", d.StartTicks)
+	}
+	if ticks, err := (Scanner{Root: root}).StartTicks(812); ticks != 250 || err != nil {
+		t.Errorf("Scanner.StartTicks = %d, %v", ticks, err)
+	}
+	if st, err := (Scanner{Root: root}).StateCode(812); st != 'S' || err != nil {
+		t.Errorf("StateCode = %q, %v", st, err)
+	}
+	if _, err := (Scanner{Root: root}).StartTicks(999); !errors.Is(err, ErrExited) {
+		t.Errorf("StartTicks of missing process: err = %v, want ErrExited", err)
+	}
+	if _, err := (Scanner{Root: root}).StateCode(999); !errors.Is(err, ErrExited) {
+		t.Errorf("StateCode of missing process: err = %v, want ErrExited", err)
+	}
 
 	if _, err := (Scanner{Root: root}).Details(999); !errors.Is(err, ErrExited) {
 		t.Errorf("missing process: err = %v, want ErrExited", err)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jesseduffield/gocui"
 
+	"github.com/cristianradulescu/portview/internal/actions"
 	"github.com/cristianradulescu/portview/internal/inventory"
 	"github.com/cristianradulescu/portview/internal/procs"
 	"github.com/cristianradulescu/portview/internal/sockets"
@@ -21,6 +22,7 @@ const (
 	viewStatus  = "status"
 	viewFilter  = "filter"
 	viewHelp    = "help"
+	viewDialog  = "dialog"
 )
 
 // detailsMinScreen is the screen width below which the details pane is
@@ -43,6 +45,9 @@ type Options struct {
 	Interval time.Duration
 	// Filter is the initial filter.
 	Filter inventory.Filter
+	// Actions carries out the kill action; defaults to an actions.System
+	// without Docker.
+	Actions actions.Runner
 }
 
 // App is the portview TUI.
@@ -54,6 +59,20 @@ type App struct {
 
 	prompt *tui.Prompt
 	help   *tui.Popup
+	dialog *tui.Dialog
+
+	// ctx is cancelled when the app quits; background work uses it.
+	ctx context.Context
+	// async runs work off the UI goroutine and its result (a function)
+	// back on it. Tests replace it to run synchronously.
+	async func(work func() func() error)
+	// kill is the kill action in progress, if any.
+	kill *killFlow
+	// graceScale shortens the SIGTERM/SIGKILL waits in tests.
+	graceScale float64
+	// flash is a message shown in the status bar until flashUntil.
+	flash      string
+	flashUntil time.Time
 
 	// details of processes read during the current snapshot, by PID;
 	// cleared on every refresh so they never get older than one interval.
@@ -82,6 +101,8 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	a.ctx = ctx
+	defer a.endKill()
 	go a.refreshLoop(ctx)
 	go func() {
 		<-ctx.Done()
@@ -105,12 +126,23 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 	if opts.Users == nil {
 		opts.Users = inventory.NewUserCache()
 	}
+	if opts.Actions == nil {
+		opts.Actions = &actions.System{Users: opts.Users}
+	}
 	a := &App{
 		opts:       opts,
 		g:          g,
 		model:      NewModel(opts.Filter),
 		details:    make(map[int]detailsResult),
 		refreshReq: make(chan struct{}, 1),
+		ctx:        context.Background(),
+		dialog:     &tui.Dialog{Name: viewDialog},
+	}
+	a.async = func(work func() func() error) {
+		go func() {
+			done := work()
+			g.Update(func(*gocui.Gui) error { return done() })
+		}()
 	}
 	a.prompt = &tui.Prompt{
 		Name:     viewFilter,
@@ -123,6 +155,7 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 		},
 	}
 	a.help = &tui.Popup{Name: viewHelp, Title: " Help · Esc to close "}
+	a.dialog.Relayout = func() error { return a.layout(g) }
 
 	g.Highlight = true
 	g.SelFrameColor = gocui.ColorGreen
@@ -259,12 +292,19 @@ func (a *App) layout(g *gocui.Gui) error {
 	if cv := g.CurrentView(); cv != nil {
 		focus = cv.Name()
 	}
-	status.WriteString(tui.JoinStatus(statusLeft(a.model, a.refreshed), a.keys.Hints(focus), maxX-1))
+	left := statusLeft(a.model, a.refreshed)
+	if msg := a.flashMessage(); msg != "" {
+		left = msg
+	}
+	status.WriteString(tui.JoinStatus(left, a.keys.Hints(focus), maxX-1))
 
 	if err := a.prompt.Layout(g, tui.Rect{X0: 0, Y0: bottom - 2, X1: listX1, Y1: bottom}); err != nil {
 		return err
 	}
-	return a.help.Layout(g)
+	if err := a.help.Layout(g); err != nil {
+		return err
+	}
+	return a.dialog.Layout(g)
 }
 
 func (a *App) renderList(v *gocui.View) {

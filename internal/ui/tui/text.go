@@ -195,3 +195,30 @@ func WrapHanging(text string, width int, indent string) []string {
 	}
 	return lines
 }
+
+// Chunk splits plain s into lines of at most width cells, breaking
+// anywhere (between grapheme clusters), like a terminal does.
+func Chunk(s string, width int) []string {
+	if width <= 0 || uniseg.StringWidth(s) <= width {
+		return []string{s}
+	}
+	var (
+		out []string
+		sb  strings.Builder
+		w   int
+	)
+	for g := uniseg.NewGraphemes(s); g.Next(); {
+		cw := g.Width()
+		if w+cw > width && sb.Len() > 0 {
+			out = append(out, sb.String())
+			sb.Reset()
+			w = 0
+		}
+		sb.WriteString(g.Str())
+		w += cw
+	}
+	if sb.Len() > 0 {
+		out = append(out, sb.String())
+	}
+	return out
+}

@@ -4,10 +4,10 @@ A terminal UI for Linux that lists open TCP/UDP sockets, shows the process
 behind each one, and lets you stop that process. It works like lazygit, but
 for ports.
 
-> **Status:** early development. The read-only TUI with process details,
-> Docker awareness and `--dump` work. The kill action is still to come.
+> **Status:** v1 feature-complete: socket list, filters, process details,
+> Docker awareness, the kill action and `--dump`.
 
-## Planned features (v1)
+## Features
 
 - Socket list for TCP, TCP6, UDP and UDP6: protocol, local and remote address,
   state, PID, process name and user.
@@ -23,6 +23,7 @@ for ports.
   SIGKILL. For a systemd unit it offers `systemctl stop`, and for a container
   it offers `docker stop`.
 - Auto-refresh that keeps your selection in place.
+- Works without root, and says what you would see or be able to do with `sudo`.
 
 ## Requirements
 
@@ -83,6 +84,7 @@ in bold.
 | `t` / `u` | TCP only / UDP only (press again to show both) |
 | `4` / `6` | IPv4 only / IPv6 only (press again to show both) |
 | `Tab` | focus the details pane (`j`/`k`, `PgUp`/`PgDn` scroll; `Tab`/`Esc` go back) |
+| `x` | stop what holds the selected socket (see [Stopping a process](#stopping-a-process)) |
 | `r` | refresh now |
 | `?` | help |
 | `q`, `Ctrl-c` | quit |
@@ -122,6 +124,52 @@ not expose this information:
 - `ss` adds the interface name for sockets bound to one device (`%lo`).
   portview leaves it out.
 
+### Stopping a process
+
+`x` opens a confirmation dialog for the selected socket. It shows the socket,
+every process holding it (PID, user and command line, the primary one
+marked), its systemd unit and its container, and offers what applies:
+
+| Option | When | What it does |
+|---|---|---|
+| `SIGTERM PID …` | a process holding the socket is visible | one entry per process (the primary first), plus "all N processes" when the socket is shared; `s` changes the signal |
+| `systemctl stop <unit>` | the primary process belongs to a systemd `.service` | `systemctl [--user] stop`; the unit stays stopped |
+| `docker stop <name>` | the socket belongs to a Docker container, or is the `docker-proxy` of a published port | stops the container through the Docker API (10s grace, then SIGKILL) |
+
+Pick with `j`/`k` and `Enter`, or with the number keys. `Esc` cancels.
+`s` cycles the signal the process options send: SIGTERM (default), SIGKILL,
+SIGINT, SIGHUP and SIGQUIT. SIGKILL comes second, so a process you already
+know ignores SIGTERM is one keypress away. The footer says what the chosen
+signal usually does (SIGHUP, for example, makes many daemons reload their
+configuration rather than exit).
+
+- **Default choice.** SIGTERM to the primary process. For a container it
+  is `docker stop`: a process killed inside a container is usually
+  restarted by its restart policy, and killing a `docker-proxy` only breaks
+  the port mapping.
+- **Then SIGKILL.** After the signal, portview waits up to 2 seconds. If
+  the process is still running, it offers SIGKILL, waiting another 2
+  seconds, or leaving it running. After SIGKILL it waits 1 second and
+  reports a process that still hasn't exited (stuck in the kernel).
+- **systemd services.** The dialog shows the unit's `Restart=` setting
+  (read with `systemctl show`). A killed process may be restarted by
+  systemd; `systemctl stop` keeps it down. `systemctl` never prompts for a
+  password (`--no-ask-password`): without the right privileges it fails
+  and portview suggests `sudo`. User services are stopped with
+  `systemctl --user`, and as root with `--user --machine=<user>@.host`.
+- **What is never offered.** Signalling PID 1 or the systemd user manager
+  (they hold sockets for socket activation: stop the `.socket` unit
+  instead), and stopping `docker.service` for a `docker-proxy` socket.
+- **Safety against PID reuse.** The dialog records each process's start
+  time. Before signalling, portview opens a pidfd for the PID and checks
+  the start time still matches, so a process that exited while the dialog
+  was open is reported as gone instead of an unrelated process that got
+  its PID being signalled.
+
+The list refreshes as soon as the action completes, and the result shows
+in the status bar. `systemctl stop` and `docker stop` run in the
+background; `Esc` hides their progress dialog.
+
 ## Docker
 
 Containers have their own network namespaces, so their sockets don't show
@@ -159,6 +207,18 @@ process owns a socket can only be resolved for processes you're allowed to
 inspect (in practice, your own). Other owners show as `?`, and portview prints
 a hint to rerun with `sudo`. As root, everything is resolved.
 
+The same applies to the kill action:
+
+| Action | Without root | With `sudo` |
+|---|---|---|
+| Signal a process | your own processes | any process |
+| `systemctl --user stop` | your own user services | any user's services |
+| `systemctl stop` (system services) | only if polkit allows it without a password | yes |
+| `docker stop` | if you can use the Docker socket (`docker` group) | yes |
+
+Without root, other users' processes are hidden, so the dialog can only
+offer `docker stop` for their sockets (when they belong to a container).
+
 ## How it works
 
 1. A single pass over `/proc` maps socket inodes to PIDs through the
@@ -192,7 +252,7 @@ internal/procs/        /proc scan: socket inode → PIDs, process details, syste
 internal/docker/       minimal Docker API client over the unix socket (list, stop)
 internal/termsafe/     escaping of untrusted strings before they reach the terminal
 internal/inventory/    snapshot assembly, filtering, ordering, diff and selection
-internal/actions/      kill / systemctl stop / docker stop
+internal/actions/      what to offer for a socket (Plan) and doing it: signals, systemctl stop, docker stop
 internal/ui/tui/       generic gocui building blocks
 internal/ui/portsview/ portview-specific panels and dialogs
 ```

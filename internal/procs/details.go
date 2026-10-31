@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/cristianradulescu/portview/internal/termsafe"
@@ -32,6 +33,9 @@ type Details struct {
 	UID        int
 	Threads    int
 	StartTime  time.Time // zero if unknown
+	// StartTicks is the raw start time in clock ticks since boot. Together
+	// with the PID it identifies a process even after the PID is reused.
+	StartTicks uint64
 	Cgroup     string
 	Unit       Unit
 	Container  Container
@@ -75,6 +79,7 @@ func (s Scanner) Details(pid int) (*Details, error) {
 	}
 	if b, err := os.ReadFile(filepath.Join(pdir, "stat")); err == nil {
 		if ticks, ok := parseStartTicks(b); ok {
+			d.StartTicks = ticks
 			if boot, ok := bootTime(root); ok {
 				d.StartTime = boot.Add(time.Duration(ticks) * time.Second / time.Duration(clockTicks(root)))
 			}
@@ -90,6 +95,41 @@ func (s Scanner) Details(pid int) (*Details, error) {
 		}
 	}
 	return d, nil
+}
+
+// StartTicks reads the start time of pid in clock ticks since boot (see
+// Details.StartTicks). It returns ErrExited when the process is gone.
+func (s Scanner) StartTicks(pid int) (uint64, error) {
+	b, err := os.ReadFile(filepath.Join(s.root(), strconv.Itoa(pid), "stat"))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+			return 0, ErrExited
+		}
+		return 0, err
+	}
+	ticks, ok := parseStartTicks(b)
+	if !ok {
+		return 0, errors.New("malformed stat of PID " + strconv.Itoa(pid))
+	}
+	return ticks, nil
+}
+
+// StateCode reads the one-letter state of pid from /proc/<pid>/stat (e.g.
+// 'S', 'R', 'D', 'Z' for a zombie). It returns ErrExited when the process
+// is gone.
+func (s Scanner) StateCode(pid int) (byte, error) {
+	b, err := os.ReadFile(filepath.Join(s.root(), strconv.Itoa(pid), "stat"))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+			return 0, ErrExited
+		}
+		return 0, err
+	}
+	i := bytes.LastIndexByte(b, ')')
+	if i < 0 || i+2 >= len(b) {
+		return 0, errors.New("malformed stat of PID " + strconv.Itoa(pid))
+	}
+	return b[i+2], nil
 }
 
 func simplifyErr(err error) error {

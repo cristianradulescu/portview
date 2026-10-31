@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cristianradulescu/portview/internal/actions"
 	"github.com/cristianradulescu/portview/internal/docker"
 	"github.com/cristianradulescu/portview/internal/inventory"
 	"github.com/cristianradulescu/portview/internal/ui/portsview"
@@ -83,8 +84,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 	collector := inventory.NewCollector()
 	containers := &inventory.ContainerAnnotator{}
+	runner := &actions.System{Users: collector.Users}
 	if sock := docker.SocketPath(); !cfg.noDocker && sock != "" {
-		containers.Docker = docker.New(sock)
+		client := docker.New(sock)
+		containers.Docker, runner.Docker = client, client
 	}
 	collector.Annotators = append(collector.Annotators, containers)
 	filter := inventory.Filter{State: cfg.state}
@@ -92,7 +95,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if cfg.dump {
 		err = dump(ctx, collector, filter, stdout, stderr)
 	} else {
-		err = portsview.Run(ctx, portsview.Options{Collector: collector, Users: collector.Users, Interval: cfg.interval, Filter: filter})
+		err = portsview.Run(ctx, portsview.Options{
+			Collector: collector, Users: collector.Users, Interval: cfg.interval, Filter: filter, Actions: runner,
+		})
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, "portview:", err)

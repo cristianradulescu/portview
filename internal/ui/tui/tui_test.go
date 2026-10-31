@@ -153,3 +153,55 @@ func TestWrapHanging(t *testing.T) {
 		t.Errorf("hard wrap lost text: %q", long)
 	}
 }
+
+func TestDialogLines(t *testing.T) {
+	var d Dialog
+	d.Open(" T ", []string{"body text", Color("colored", FgRed)}, []Choice{
+		{Label: "first"},
+		{Label: "second", Danger: true},
+	}, 5) // out of range: clamped
+	d.Footer = []string{"hint"}
+	if d.Selected() != 1 {
+		t.Fatalf("Selected = %d, want clamped to 1", d.Selected())
+	}
+	d.Move(-5)
+	if d.Selected() != 0 {
+		t.Fatalf("Move(-5) = %d", d.Selected())
+	}
+	w := d.Width(200)
+	lines := d.Lines(w)
+	plain := make([]string, len(lines))
+	for i, l := range lines {
+		plain[i] = strings.TrimRight(StripANSI(l), " ")
+	}
+	want := []string{" body text", " colored", "", " 1. first", " 2. second", "", " hint"}
+	if strings.Join(plain, "|") != strings.Join(want, "|") {
+		t.Errorf("lines = %q\nwant    %q", plain, want)
+	}
+	if !strings.Contains(lines[3], "\x1b[7m") || strings.Contains(lines[4], "\x1b[7m") {
+		t.Errorf("selection highlight: %q / %q", lines[3], lines[4])
+	}
+	if !strings.Contains(lines[4], FgRed) {
+		t.Errorf("danger choice not red: %q", lines[4])
+	}
+	// Narrow screens cut long body lines instead of overflowing.
+	d.Open("", []string{strings.Repeat("x", 300)}, nil, 0)
+	if w := d.Width(60); w != 56 {
+		t.Errorf("Width(60) = %d, want 56", w)
+	}
+	if l := d.Lines(56)[0]; StringWidth(l) > 56 || !strings.HasSuffix(l, "…") {
+		t.Errorf("long line not cut: %q", l)
+	}
+}
+
+func TestChunk(t *testing.T) {
+	if got := Chunk("abcdefgh", 3); strings.Join(got, "|") != "abc|def|gh" {
+		t.Errorf("Chunk = %q", got)
+	}
+	if got := Chunk("日本語", 3); strings.Join(got, "|") != "日|本|語" {
+		t.Errorf("wide Chunk = %q", got)
+	}
+	if got := Chunk("ab", 5); len(got) != 1 || got[0] != "ab" {
+		t.Errorf("short Chunk = %q", got)
+	}
+}

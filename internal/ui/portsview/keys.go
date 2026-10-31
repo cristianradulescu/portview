@@ -44,13 +44,15 @@ func (a *App) registerKeys() {
 		tui.Binding{View: viewList, Keys: []any{'u'}, Handler: do(func() { a.toggleProto(sockets.UDP) }),
 			Label: "u", Description: "UDP only (again: TCP and UDP)", Section: filt},
 		tui.Binding{View: viewList, Keys: []any{'4'}, Handler: do(func() { a.toggleFamily(sockets.IPv4) }),
-			Label: "4", Description: "IPv4 only (again: both)", Section: filt, Hint: "4/6 ip"},
+			Label: "4", Description: "IPv4 only (again: both)", Section: filt},
 		tui.Binding{View: viewList, Keys: []any{'6'}, Handler: do(func() { a.toggleFamily(sockets.IPv6) }),
 			Label: "6", Description: "IPv6 only (again: both)", Section: filt},
 
 		tui.Binding{View: viewList, Keys: []any{gocui.KeyTab}, Handler: func() error { return a.focus(viewDetails) },
 			Label: "Tab", Description: "focus the details pane (scroll with j/k)", Section: nav, Hint: "Tab details"},
 
+		tui.Binding{View: viewList, Keys: []any{'x'}, Handler: a.openKill,
+			Label: "x", Description: "stop what holds the socket: SIGTERM/SIGKILL, systemctl stop, docker stop", Section: gen, Hint: "x kill"},
 		tui.Binding{View: viewList, Keys: []any{'r'}, Handler: do(a.requestRefresh),
 			Label: "r", Description: "refresh now", Section: gen, Hint: "r refresh"},
 		tui.Binding{View: viewList, Keys: []any{'?'}, Handler: a.openHelp,
@@ -73,18 +75,22 @@ func (a *App) registerKeys() {
 		tui.Binding{View: viewDetails, Keys: []any{'G', gocui.KeyEnd}, Handler: do(func() { a.detailsOrigin = a.detailsMax })},
 		tui.Binding{View: viewDetails, Keys: []any{gocui.KeyTab, gocui.KeyEsc}, Handler: toList,
 			Label: "Tab/Esc", Description: "back to the socket list", Section: "Details pane", Hint: "Tab/Esc back"},
+		tui.Binding{View: viewDetails, Keys: []any{'x'}, Handler: a.openKill, Hint: "x kill"},
 		tui.Binding{View: viewDetails, Keys: []any{'?'}, Handler: a.openHelp, Hint: "? help"},
 		tui.Binding{View: viewDetails, Keys: []any{'q'}, Handler: quit, Hint: "q quit"},
 	)
 	a.keys.Add(a.prompt.Bindings()...)
 	a.keys.Add(a.help.Bindings(a.g, viewList, gocui.KeyEsc, 'q', '?')...)
+	a.keys.Add(a.dialog.Bindings(a.g, viewList)...)
+	a.keys.Add(tui.Binding{View: viewDialog, Keys: []any{'s'}, Handler: a.cycleSignal,
+		Label: "s", Description: "in the kill dialog: change the signal (SIGTERM, SIGKILL, SIGINT, SIGHUP, SIGQUIT)", Section: "General"})
 }
 
 func quit() error { return gocui.ErrQuit }
 
 func helpText(k *tui.Keymap) string {
 	var sb strings.Builder
-	sb.WriteString(k.Help(viewList, viewDetails, ""))
+	sb.WriteString(k.Help(viewList, viewDetails, viewDialog, ""))
 	sb.WriteString("\n" + tui.Bold("Exposure") + "\n")
 	for _, x := range []inventory.Exposure{inventory.ExposureAll, inventory.ExposureInterface, inventory.ExposureLoopback, inventory.ExposureNamespace} {
 		sb.WriteString("  " + tui.Color(tui.PadRight(x.String(), 9), exposureColor(x)) + exposureDescription(x) + "\n")
