@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cristianradulescu/portview/internal/docker"
 	"github.com/cristianradulescu/portview/internal/inventory"
 	"github.com/cristianradulescu/portview/internal/ui/portsview"
 )
@@ -37,7 +38,7 @@ func parseFlags(args []string, errOut io.Writer) (config, error) {
 	fs := flag.NewFlagSet("portview", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	fs.DurationVar(&cfg.interval, "interval", 2*time.Second, "auto-refresh interval (e.g. 2s, 500ms)")
-	fs.BoolVar(&cfg.noDocker, "no-docker", false, "do not query the Docker daemon for container names")
+	fs.BoolVar(&cfg.noDocker, "no-docker", false, "do not query the Docker daemon (containers are still identified by ID)")
 	fs.BoolVar(&cfg.dump, "dump", false, "print sockets to stdout and exit instead of starting the TUI")
 	fs.StringVar(&state, "state", "listen", "initial socket state filter: listen, established or all")
 	fs.BoolVar(&cfg.version, "version", false, "print version and exit")
@@ -81,6 +82,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	collector := inventory.NewCollector()
+	containers := &inventory.ContainerAnnotator{}
+	if sock := docker.SocketPath(); !cfg.noDocker && sock != "" {
+		containers.Docker = docker.New(sock)
+	}
+	collector.Annotators = append(collector.Annotators, containers)
 	filter := inventory.Filter{State: cfg.state}
 
 	if cfg.dump {

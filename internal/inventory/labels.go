@@ -56,3 +56,17 @@ func (s *Snapshot) NetNSLabel(key uint64) string {
 	}
 	return fmt.Sprintf("%s(%d)", name, leader)
 }
+
+// ContainerLabel is the container column text: the container name (or short
+// ID), prefixed with "→" for a host socket forwarding a published port to it,
+// e.g. "→web-1:80". Empty when the socket is not related to a container.
+func (e *Entry) ContainerLabel() string {
+	c := e.Container
+	if c == nil {
+		return ""
+	}
+	if c.Forward != nil {
+		return fmt.Sprintf("→%s:%d", c.Label(), c.Forward.ContainerPort)
+	}
+	return c.Label()
+}

@@ -19,6 +19,9 @@ func dump(ctx context.Context, c *inventory.Collector, filter inventory.Filter, 
 	}
 	rows := filter.Apply(snap.Entries)
 	writeDump(stdout, snap, rows)
+	if snap.DockerErr != nil {
+		fmt.Fprintf(stderr, "\ncontainer names unavailable: %v\n", snap.DockerErr)
+	}
 	if snap.Hidden > 0 && !snap.Privileged {
 		fmt.Fprintf(stderr, "\n%d socket(s) belong to processes you cannot inspect (PID shown as ?); rerun with sudo for full details.\n", snap.Hidden)
 	}
@@ -26,11 +29,22 @@ func dump(ctx context.Context, c *inventory.Collector, filter inventory.Filter, 
 }
 
 func writeDump(w io.Writer, snap *inventory.Snapshot, rows []inventory.Entry) {
+	withContainers := false
+	for i := range rows {
+		if rows[i].Container != nil {
+			withContainers = true
+			break
+		}
+	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NETID\tSTATE\tLOCAL\tREMOTE\tEXPOSURE\tPID\tPROCESS\tUSER\tNETNS")
+	header := "NETID\tSTATE\tLOCAL\tREMOTE\tEXPOSURE\tPID\tPROCESS\tUSER\tNETNS"
+	if withContainers {
+		header += "\tCONTAINER"
+	}
+	fmt.Fprintln(tw, header)
 	for i := range rows {
 		e := &rows[i]
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
 			e.Netid(),
 			e.State,
 			sockets.FormatAddrPort(e.Local),
@@ -41,6 +55,17 @@ func writeDump(w io.Writer, snap *inventory.Snapshot, rows []inventory.Entry) {
 			e.User,
 			snap.NetNSLabel(e.NetNS),
 		)
+		if withContainers {
+			fmt.Fprintf(tw, "\t%s", orDash(e.ContainerLabel()))
+		}
+		fmt.Fprintln(tw)
 	}
 	tw.Flush()
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }

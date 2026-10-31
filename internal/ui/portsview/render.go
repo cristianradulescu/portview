@@ -19,6 +19,8 @@ type column struct {
 	// middle truncates in the middle instead of at the end (addresses: keep
 	// the port visible).
 	middle bool
+	// optional columns are hidden when no row has a value.
+	optional bool
 }
 
 const (
@@ -30,35 +32,38 @@ const (
 	colPID
 	colProcess
 	colUser
+	colContainer
 	numCols
 )
 
 var columns = [numCols]column{
-	colProto:    {title: "PROTO", min: 5, max: 5},
-	colState:    {title: "STATE", min: 5, max: 10},
-	colLocal:    {"LOCAL", 5, 47, 21, true},
-	colRemote:   {"REMOTE", 6, 47, 15, true},
-	colExposure: {"EXPOSURE", 8, 8, 0, false},
-	colPID:      {"PID", 3, 12, 0, false},
-	colProcess:  {"PROCESS", 7, 16, 8, false},
-	colUser:     {"USER", 4, 16, 8, false},
+	colProto:     {title: "PROTO", min: 5, max: 5},
+	colState:     {title: "STATE", min: 5, max: 10},
+	colLocal:     {title: "LOCAL", min: 5, max: 47, shrink: 21, middle: true},
+	colRemote:    {title: "REMOTE", min: 6, max: 47, shrink: 15, middle: true},
+	colExposure:  {title: "EXPOSURE", min: 8, max: 8},
+	colPID:       {title: "PID", min: 3, max: 12},
+	colProcess:   {title: "PROCESS", min: 7, max: 16, shrink: 8},
+	colUser:      {title: "USER", min: 4, max: 16, shrink: 8},
+	colContainer: {title: "CONTAINER", min: 9, max: 24, shrink: 10, optional: true},
 }
 
 // shrinkGroups give up space in order; within a group the widest column
 // shrinks first, so the two address columns end up balanced.
-var shrinkGroups = [][]int{{colLocal, colRemote}, {colUser, colProcess}}
+var shrinkGroups = [][]int{{colLocal, colRemote}, {colContainer, colUser, colProcess}}
 
 // cells returns the plain text of each column for e.
 func cells(e *inventory.Entry, privileged bool) [numCols]string {
 	return [numCols]string{
-		colProto:    e.Netid(),
-		colState:    e.State.String(),
-		colLocal:    sockets.FormatAddrPort(e.Local),
-		colRemote:   sockets.FormatAddrPort(e.Remote),
-		colExposure: exposureLabel(e.Exposure),
-		colPID:      e.PIDLabel(privileged),
-		colProcess:  e.ProcessLabel(privileged),
-		colUser:     e.User,
+		colProto:     e.Netid(),
+		colState:     e.State.String(),
+		colLocal:     sockets.FormatAddrPort(e.Local),
+		colRemote:    sockets.FormatAddrPort(e.Remote),
+		colExposure:  exposureLabel(e.Exposure),
+		colPID:       e.PIDLabel(privileged),
+		colProcess:   e.ProcessLabel(privileged),
+		colUser:      e.User,
+		colContainer: e.ContainerLabel(),
 	}
 }
 
@@ -90,25 +95,36 @@ func exposureColor(x inventory.Exposure) string {
 // the visible ones, so widths do not change while scrolling), squeezed to
 // fit avail cells when possible.
 func widths(rows []inventory.Entry, privileged bool, avail int) [numCols]int {
-	var w [numCols]int
-	for i, c := range columns {
-		w[i] = max(c.min, tui.StringWidth(c.title))
-	}
+	var (
+		w    [numCols]int
+		used [numCols]bool
+	)
 	for i := range rows {
 		cs := cells(&rows[i], privileged)
 		for j, s := range cs {
+			if s != "" {
+				used[j] = true
+			}
 			w[j] = max(w[j], min(tui.StringWidth(s), columns[j].max))
 		}
 	}
-	total := numCols - 1 // separators
-	for _, x := range w {
-		total += x
+	total := -1 // n-1 separators
+	for i, c := range columns {
+		if c.optional && !used[i] {
+			w[i] = 0 // hidden
+			continue
+		}
+		w[i] = max(w[i], c.min, tui.StringWidth(c.title))
+		total += w[i] + 1
 	}
 	excess := total - avail
 	for _, group := range shrinkGroups {
 		for excess > 0 {
 			widest := -1
 			for _, c := range group {
+				if w[c] == 0 {
+					continue // hidden column
+				}
 				floor := max(columns[c].shrink, tui.StringWidth(columns[c].title))
 				if w[c] > floor && (widest < 0 || w[c] > w[widest]) {
 					widest = c
@@ -125,17 +141,22 @@ func widths(rows []inventory.Entry, privileged bool, avail int) [numCols]int {
 }
 
 func headerLine(w [numCols]int) string {
-	parts := make([]string, numCols)
+	parts := make([]string, 0, numCols)
 	for i, c := range columns {
-		parts[i] = tui.Fit(c.title, w[i])
+		if w[i] > 0 {
+			parts = append(parts, tui.Fit(c.title, w[i]))
+		}
 	}
 	return tui.Color(strings.TrimRight(strings.Join(parts, " "), " "), "1", "4")
 }
 
 func rowLine(e *inventory.Entry, w [numCols]int, privileged, fresh bool) string {
 	cs := cells(e, privileged)
-	parts := make([]string, numCols)
+	parts := make([]string, 0, numCols)
 	for i, s := range cs {
+		if w[i] == 0 {
+			continue // hidden column
+		}
 		var codes []string
 		switch i {
 		case colLocal, colExposure:
@@ -154,6 +175,8 @@ func rowLine(e *inventory.Entry, w [numCols]int, privileged, fresh bool) string 
 			if s == "?" || s == "-" {
 				codes = append(codes, tui.FgGray)
 			}
+		case colContainer:
+			codes = append(codes, tui.FgCyan)
 		}
 		if fresh {
 			codes = append(codes, "1")
@@ -161,7 +184,7 @@ func rowLine(e *inventory.Entry, w [numCols]int, privileged, fresh bool) string 
 		if columns[i].middle {
 			s = tui.TruncateMiddle(s, w[i])
 		}
-		parts[i] = tui.Color(tui.Fit(s, w[i]), codes...)
+		parts = append(parts, tui.Color(tui.Fit(s, w[i]), codes...))
 	}
 	return strings.Join(parts, " ")
 }
@@ -225,6 +248,9 @@ func statusLeft(m *Model, refreshed time.Time) string {
 	parts = append(parts, fmt.Sprintf("%d/%d", len(m.Rows()), m.Total()))
 	if snap := m.Snapshot(); snap != nil && !snap.Privileged && snap.Hidden > 0 {
 		parts = append(parts, tui.Color(fmt.Sprintf("%d owners hidden: run with sudo", snap.Hidden), tui.FgYellow))
+	}
+	if snap := m.Snapshot(); snap != nil && snap.DockerErr != nil {
+		parts = append(parts, tui.Color("docker names unavailable", tui.FgYellow))
 	}
 	if err := m.Err(); err != nil {
 		parts = append(parts, tui.Color("refresh failed: "+err.Error(), tui.FgRed))

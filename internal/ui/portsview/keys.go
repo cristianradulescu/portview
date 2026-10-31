@@ -93,6 +93,8 @@ func helpText(k *tui.Keymap) string {
 	sb.WriteString("  PID 812+4  socket shared by 5 processes; 812 is the primary (master)\n")
 	sb.WriteString("  PID ?      owner not visible to you: rerun with sudo\n")
 	sb.WriteString("  PID -      no owning process (TIME-WAIT, kernel socket)\n")
+	sb.WriteString("  CONTAINER  web-1      socket inside container web-1\n")
+	sb.WriteString("             →web-1:80  host port published by web-1 (docker-proxy forwards to its port 80)\n")
 	sb.WriteString("  bold row   appeared in the last refresh\n")
 	return sb.String()
 }

@@ -39,6 +39,9 @@ type Entry struct {
 	User string
 	// HostNetNS reports whether the socket lives in the host namespace.
 	HostNetNS bool
+	// Container is set when the socket belongs to (or forwards to) a
+	// container.
+	Container *ContainerRef
 }
 
 // Snapshot is the result of one collection cycle.
@@ -51,7 +54,10 @@ type Snapshot struct {
 	// Hidden counts sockets that have a file (inode != 0) but no visible
 	// owner. When not privileged these most likely belong to other users.
 	Hidden int
-	Taken  time.Time
+	// DockerErr is set when the Docker API was reachable in principle but
+	// failed, e.g. permission denied on the socket.
+	DockerErr error
+	Taken     time.Time
 }
 
 // Collector assembles snapshots. It does not depend on any UI.
@@ -59,6 +65,8 @@ type Collector struct {
 	Procs   ProcScanner
 	Sockets sockets.Source
 	Users   UserResolver
+	// Annotators run after sockets and processes are joined.
+	Annotators []Annotator
 	// Privileged overrides the root detection; nil means os.Geteuid() == 0.
 	Privileged *bool
 }
@@ -120,6 +128,9 @@ func (c *Collector) Collect(ctx context.Context) (*Snapshot, error) {
 			e.User = fmt.Sprint(uid)
 		}
 		snap.Entries = append(snap.Entries, e)
+	}
+	for _, a := range c.Annotators {
+		a.Annotate(ctx, snap)
 	}
 	sort.SliceStable(snap.Entries, func(i, j int) bool { return Less(&snap.Entries[i], &snap.Entries[j]) })
 	return snap, nil

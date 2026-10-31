@@ -143,9 +143,14 @@ func TestWidthsFitPanel(t *testing.T) {
 		t.Fatalf("natural local width = %d", natural[colLocal])
 	}
 	w := widths(rows, false, 100)
-	total := numCols - 1
+	total := -1
 	for _, x := range w {
-		total += x
+		if x > 0 { // hidden columns take no space and no separator
+			total += x + 1
+		}
+	}
+	if w[colContainer] != 0 {
+		t.Errorf("CONTAINER column should be hidden without containers")
 	}
 	if total > 100 {
 		t.Errorf("total width %d exceeds 100: %v", total, w)

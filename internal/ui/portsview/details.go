@@ -70,6 +70,38 @@ func renderDetails(in detailsInput) string {
 	}
 	kv("Queues", fmt.Sprintf("recv %d · send %d", e.RxQueue, e.TxQueue))
 
+	// --- container ---
+	if c := e.Container; c != nil {
+		title := "Container " + c.Label()
+		if c.Name != "" {
+			title += " (" + c.ShortID() + ")"
+		}
+		section(title)
+		if c.Forward != nil {
+			kv("Forwards", fmt.Sprintf("host port %d/%s → container port %d/%s",
+				e.Local.Port(), e.Proto, c.Forward.ContainerPort, c.Forward.Proto))
+			sb.WriteString(tui.Dim("            this is the docker-proxy for a published port") + "\n")
+		}
+		if c.Image != "" {
+			kv("Image", c.Image)
+		}
+		if c.Project != "" {
+			kv("Compose", c.Project+" / "+c.Service)
+		}
+		if c.Runtime != "" && c.Runtime != "docker" {
+			kv("Runtime", c.Runtime)
+		}
+		if c.Name == "" {
+			reason := "Docker API not queried (--no-docker)"
+			if snap.DockerErr != nil {
+				reason = snap.DockerErr.Error()
+			} else if c.Runtime == "podman" {
+				reason = "podman containers are identified by ID only"
+			}
+			kv("Name", tui.Dim("unknown: "+reason))
+		}
+	}
+
 	// --- process ---
 	switch {
 	case e.Primary == nil:
@@ -159,9 +191,6 @@ func writeProcess(sb *strings.Builder, kv func(k, v string), section func(string
 		kv("Unit", tui.Color(d.Unit.String(), tui.FgMagenta)+tui.Dim(" (systemd service)"))
 	case d.Unit.Name != "":
 		kv("Unit", d.Unit.String())
-	}
-	if d.Container.ID != "" {
-		kv("Container", tui.Color(d.Container.ShortID(), tui.FgCyan)+tui.Dim(" ("+d.Container.Runtime+")"))
 	}
 }
 

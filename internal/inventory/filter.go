@@ -113,6 +113,7 @@ func matchTerm(e *Entry, term string) bool {
 		e.Netid(),
 		e.State.String(),
 		e.User,
+		containerName(e),
 	}
 	for _, p := range e.Owners {
 		fields = append(fields, p.Comm)

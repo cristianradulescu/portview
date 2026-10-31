@@ -4,8 +4,8 @@ A terminal UI for Linux that lists open TCP/UDP sockets, shows the process
 behind each one, and lets you stop that process. It works like lazygit, but
 for ports.
 
-> **Status:** early development. The read-only TUI with process details and
-> `--dump` work. Docker name resolution and the kill action are still to come.
+> **Status:** early development. The read-only TUI with process details,
+> Docker awareness and `--dump` work. The kill action is still to come.
 
 ## Planned features (v1)
 
@@ -122,6 +122,35 @@ not expose this information:
 - `ss` adds the interface name for sockets bound to one device (`%lo`).
   portview leaves it out.
 
+## Docker
+
+Containers have their own network namespaces, so their sockets don't show
+up in the host's `/proc/net/tcp` or in a plain `ss`. portview reads each
+namespace separately and connects sockets to containers in three ways:
+
+- **Inside a container.** The owning process's cgroup
+  (`docker-<id>.scope` or `/docker/<id>`) gives the container ID. When the
+  owner can't be inspected, the first process in the socket's namespace is
+  used instead, which works without root.
+- **A published port.** A host socket listening on a port that a container
+  publishes is that container's `docker-proxy`. It shows as `→name:port`,
+  even when its PID is hidden.
+- **Names.** Container names, images and docker compose project/service
+  come from the Docker API on `/var/run/docker.sock`, or from `DOCKER_HOST`
+  when it's a `unix://` URL.
+
+The CONTAINER column only appears when the list has container sockets. If
+the daemon isn't installed, portview says nothing about it. If the socket
+isn't accessible to you, containers are still identified by ID and the
+status bar says that names are unavailable. `--no-docker` skips the API
+entirely.
+
+The Docker client is about 200 lines of `net/http` over the unix socket,
+rather than the Docker SDK and its large dependency tree. It only needs to
+list containers and, for the kill action, stop one.
+
+Podman containers (`libpod-<id>.scope`) are identified by ID only.
+
 ## Privileges
 
 portview works without root. A socket's user is visible to everyone, and so
@@ -160,7 +189,8 @@ make help    # list all targets
 cmd/portview/          entry point and flags
 internal/sockets/      socket collection from /proc/<pid>/net/*, per network namespace
 internal/procs/        /proc scan: socket inode → PIDs, process details, systemd unit
-internal/docker/       minimal Docker API client over the unix socket
+internal/docker/       minimal Docker API client over the unix socket (list, stop)
+internal/termsafe/     escaping of untrusted strings before they reach the terminal
 internal/inventory/    snapshot assembly, filtering, ordering, diff and selection
 internal/actions/      kill / systemctl stop / docker stop
 internal/ui/tui/       generic gocui building blocks

@@ -271,3 +271,41 @@ func TestAppDetailsExitedProcess(t *testing.T) {
 		t.Errorf("exited process:\n%s", out)
 	}
 }
+
+func TestAppContainers(t *testing.T) {
+	a, g := newHeadless(t, 190, 45)
+	ctr := listen(sockets.TCP, 5432)
+	ctr.NetNS, ctr.HostNetNS, ctr.Exposure = 2, false, inventory.ExposureNamespace
+	ctr.Container = &inventory.ContainerRef{ID: strings.Repeat("ab", 32), Name: "db-1", Image: "postgres:18",
+		Runtime: "docker", Project: "shop", Service: "db"}
+	proxy := listen(sockets.TCP, 15432)
+	proxy.Container = &inventory.ContainerRef{ID: strings.Repeat("ab", 32), Name: "db-1", Image: "postgres:18",
+		Runtime: "docker", Forward: &inventory.Forward{ContainerPort: 5432, Proto: "tcp"}}
+	snap := snapshot(ctr, proxy)
+	snap.Procs.Namespaces = []procs.Namespace{{Key: 1, PIDs: []int{1}}, {Key: 2, PIDs: []int{4242}}}
+	snap.Procs.Procs = map[int]*procs.Process{4242: {PID: 4242, Comm: "postgres", Loaded: true}}
+	a.apply(snap, nil)
+
+	out := draw(t, g)
+	for _, want := range []string{"CONTAINER", "db-1", "→db-1:5432",
+		"Container db-1 (abababababab)", "postgres:18", "shop / db", "netns", "postgres(4242)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	_ = press(t, a, viewList, 'j')
+	out = draw(t, g)
+	if !strings.Contains(out, "host port 15432/tcp → container port 5432/tcp") || !strings.Contains(out, "docker-proxy") {
+		t.Errorf("forward details:\n%s", out)
+	}
+
+	// Name unknown because the API failed.
+	ctr.Container = &inventory.ContainerRef{ID: strings.Repeat("ab", 32), Runtime: "docker"}
+	snap = snapshot(ctr)
+	snap.DockerErr = errors.New("permission denied on the docker socket")
+	a.apply(snap, nil)
+	out = draw(t, g)
+	if !strings.Contains(out, "unknown: permission denied") || !strings.Contains(out, "docker names unavailable") {
+		t.Errorf("docker error:\n%s", out)
+	}
+}
