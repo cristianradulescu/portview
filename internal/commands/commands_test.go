@@ -248,7 +248,7 @@ func TestNamespaceScan(t *testing.T) {
 		Procs:      map[int]*procs.Process{4242: {PID: 4242, Comm: "srv", Loaded: true}},
 		Namespaces: []procs.Namespace{{Key: 1, PIDs: []int{1}}, {Key: 2, PIDs: []int{4242}}}}}
 	ops := NamespaceScan(snap, Env{})
-	if len(ops) != 2 || ops[0].Cmd != "ss -tuanp" || ops[1].Cmd != "sudo nsenter -t 4242 -n ss -tuanp" ||
+	if len(ops) != 2 || ops[0].Cmd != "ss -tuxanp" || ops[1].Cmd != "sudo nsenter -t 4242 -n ss -tuxanp" ||
 		!strings.Contains(ops[1].Desc, "srv(4242)") {
 		t.Errorf("ops = %+v", ops)
 	}

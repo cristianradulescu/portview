@@ -40,10 +40,10 @@ func eventsApp(t *testing.T) (*App, *gocui.Gui) {
 
 func TestEventsTab(t *testing.T) {
 	a, g := eventsApp(t)
-	if out := draw(t, g); !strings.Contains(out, "Sockets 4/4 - Events 2") {
+	if out := draw(t, g); !strings.Contains(out, "Sockets 4/4 - Unix - Events 2") {
 		t.Fatalf("tab titles:\n%s", out)
 	}
-	if err := press(t, a, viewList, ']'); err != nil {
+	if err := press(t, a, viewList, '['); err != nil { // previous tab wraps to Events
 		t.Fatal(err)
 	}
 	out := draw(t, g)
@@ -104,7 +104,7 @@ func TestEventsTab(t *testing.T) {
 
 func TestEventsSelectionFollowsOrStays(t *testing.T) {
 	a, g := eventsApp(t)
-	_ = press(t, a, viewList, ']')
+	_ = press(t, a, viewList, '[')
 	draw(t, g)
 	add := func(port uint16) {
 		snap := a.model.Snapshot()

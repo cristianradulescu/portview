@@ -18,7 +18,9 @@ import (
 // Tabs of the left panel.
 const (
 	tabSockets = iota
+	tabUnix
 	tabEvents
+	numTabs
 )
 
 // maxEvents caps the event history.
@@ -174,7 +176,8 @@ func (a *App) switchTab(tab int) error {
 	if a.tab == tab {
 		return nil
 	}
-	focused := a.g.CurrentView() != nil && (a.g.CurrentView().Name() == viewList || a.g.CurrentView().Name() == viewEvents)
+	cv := a.g.CurrentView()
+	focused := cv != nil && (cv.Name() == viewList || cv.Name() == viewUnix || cv.Name() == viewEvents)
 	a.tab = tab
 	if err := a.layout(a.g); err != nil {
 		return err
@@ -185,12 +188,15 @@ func (a *App) switchTab(tab int) error {
 	return nil
 }
 
-func (a *App) leftView() string {
-	if a.tab == tabEvents {
-		return viewEvents
-	}
-	return viewList
+// cycleTab moves to the next (delta 1) or previous (-1) tab.
+func (a *App) cycleTab(delta int) error {
+	return a.switchTab((a.tab + delta + numTabs) % numTabs)
 }
+
+func (a *App) leftView() string { return tabViews[a.tab] }
+
+// tabViews is the view of each tab.
+var tabViews = [numTabs]string{tabSockets: viewList, tabUnix: viewUnix, tabEvents: viewEvents}
 
 // jumpToSocket shows the selected event's socket in the socket list, if
 // it is still open.
@@ -216,7 +222,11 @@ func (a *App) tabTitles() []string {
 	if a.model.Snapshot() != nil {
 		sockets = fmt.Sprintf("Sockets %d/%d", len(a.model.Rows()), a.model.Total())
 	}
-	return []string{sockets, "Events " + strconv.Itoa(len(a.eventRows()))}
+	unix := "Unix"
+	if shown, total := a.unixCount(); total > 0 {
+		unix = fmt.Sprintf("Unix %d/%d", shown, total)
+	}
+	return []string{sockets, unix, "Events " + strconv.Itoa(len(a.eventRows()))}
 }
 
 // renderEvents draws the events tab.

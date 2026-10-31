@@ -267,7 +267,7 @@ func Process(e *inventory.Entry, d *procs.Details, env Env) []Command {
 	}
 	add("how many files it has open, and its limit", others(fmt.Sprintf("ls /proc/%d/fd | wc -l", pid))+fmt.Sprintf("; prlimit --pid %d --nofile", pid))
 	add("its namespaces; compare with ls -l /proc/self/ns", others(fmt.Sprintf("ls -l /proc/%d/ns", pid)))
-	add("all its sockets", env.sudo("ss -tuanp")+" | grep "+Quote(fmt.Sprintf("pid=%d,", pid)))
+	add("all its TCP and UDP sockets (ss -xap lists Unix ones)", env.sudo("ss -tuanp")+" | grep "+Quote(fmt.Sprintf("pid=%d,", pid)))
 	if len(e.Owners) > 1 {
 		pids := make([]string, len(e.Owners))
 		for i, o := range e.Owners {
@@ -373,7 +373,7 @@ func NamespaceScan(snap *inventory.Snapshot, env Env) []Op {
 	var ops []Op
 	for _, ns := range snap.Procs.Namespaces {
 		if ns.Key == snap.Procs.HostNetNS {
-			ops = append(ops, Op{Desc: "sockets of the host network namespace", Cmd: env.sudo("ss -tuanp")})
+			ops = append(ops, Op{Desc: "sockets of the host network namespace", Cmd: env.sudo("ss -tuxanp")})
 			continue
 		}
 		if len(ns.PIDs) == 0 {
@@ -381,7 +381,7 @@ func NamespaceScan(snap *inventory.Snapshot, env Env) []Op {
 		}
 		ops = append(ops, Op{
 			Desc: "sockets of network namespace " + snap.NetNSLabel(ns.Key),
-			Cmd:  fmt.Sprintf("sudo nsenter -t %d -n ss -tuanp", ns.PIDs[0]),
+			Cmd:  fmt.Sprintf("sudo nsenter -t %d -n ss -tuxanp", ns.PIDs[0]),
 		})
 	}
 	return ops
@@ -444,4 +444,71 @@ func Kill(sig syscall.Signal, pids ...int) string {
 		s[i] = strconv.Itoa(p)
 	}
 	return fmt.Sprintf("kill -%s %s", strings.TrimPrefix(actions.SignalName(sig), "SIG"), strings.Join(s, " "))
+}
+
+// --- Unix sockets ---------------------------------------------------------
+
+// UnixView is the ss command listing what the Unix tab shows.
+func UnixView(f inventory.Filter, env Env) Command {
+	var cmd string
+	switch f.State {
+	case inventory.StateListening:
+		cmd = "ss -xlp"
+	case inventory.StateEstablished:
+		cmd = "ss -xp state established"
+	default:
+		cmd = "ss -xap"
+	}
+	cmd = env.sudo(cmd)
+	for _, w := range strings.Fields(f.Text) {
+		cmd += " | grep -iF -- " + Quote(w)
+	}
+	comment := "Unix sockets of the host network namespace"
+	if !env.Privileged {
+		comment += "; add sudo to see every process"
+	}
+	return Command{Comment: comment, Cmd: cmd}
+}
+
+// UnixSocket is how to look at one Unix socket.
+func UnixSocket(u *inventory.UnixEntry, snap *inventory.Snapshot, env Env) []Command {
+	var out []Command
+	add := func(comment, cmd string) { out = append(out, Command{comment, cmd}) }
+	leader := 0
+	if !u.HostNetNS {
+		leader = snap.Leader(u.NetNS)
+	}
+	inNS := func(cmd string) string {
+		if leader > 0 {
+			return fmt.Sprintf("sudo nsenter -t %d -n %s", leader, cmd)
+		}
+		return env.sudo(cmd)
+	}
+	ino := strconv.FormatUint(u.Inode, 10)
+	if u.Path != "" {
+		add("this socket by name, with its owner (-p) and inode (-e)", inNS("ss -xape src "+Quote(u.Path)))
+	} else {
+		add("this socket: unnamed, so find it by inode", inNS("ss -xape")+" | grep -w "+ino)
+	}
+	if u.Path != "" && !u.Abstract() {
+		add("the socket file: its permissions decide who may connect", "ls -l "+Quote(u.Path))
+	}
+	table := "/proc/net/unix"
+	if leader > 0 {
+		table = fmt.Sprintf("/proc/%d/net/unix", leader)
+	}
+	add("the kernel's table, which ss and portview read (i explains every field)",
+		fmt.Sprintf("awk %s %s", Quote("NR == 1 || $7 == "+ino), table))
+	add(fmt.Sprintf("which process holds socket inode %d (how portview finds owners)", u.Inode),
+		env.sudo(fmt.Sprintf(`find /proc/[0-9]*/fd -lname 'socket:\[%d\]' 2>/dev/null`, u.Inode)))
+	return out
+}
+
+// UnixRawLine is the awk command printing u's line of /proc/net/unix.
+func UnixRawLine(u *inventory.UnixEntry, leader int) string {
+	table := "/proc/net/unix"
+	if leader > 0 {
+		table = fmt.Sprintf("/proc/%d/net/unix", leader)
+	}
+	return fmt.Sprintf("awk %s %s", Quote("NR == 1 || $7 == "+strconv.FormatUint(u.Inode, 10)), table)
 }

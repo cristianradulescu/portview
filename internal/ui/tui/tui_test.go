@@ -254,3 +254,19 @@ func TestWrapHangingExactFit(t *testing.T) {
 		}
 	}
 }
+
+func TestKeymapSkipsHintOnlyBindings(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{Headless: true, Width: 80, Height: 24, OutputMode: gocui.OutputTrue})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	var k Keymap
+	k.Add(Binding{View: "v", Hint: "x hint"})
+	if err := k.Apply(g); err != nil {
+		t.Fatal(err)
+	}
+	if got := k.Hints("v"); len(got) != 1 {
+		t.Errorf("hints = %v", got)
+	}
+}

@@ -64,7 +64,7 @@ func TestCommandLog(t *testing.T) {
 	a, g := newKillApp(t, &fakeRunner{})
 	draw(t, g)
 	log := viewText(t, g, viewLog)
-	for _, want := range []string{"$ sudo ss -tuanp", "# sockets of the host network namespace", "details of PID 100"} {
+	for _, want := range []string{"$ sudo ss -tuxanp", "# sockets of the host network namespace", "details of PID 100"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log missing %q:\n%s", want, log)
 		}
@@ -90,10 +90,10 @@ func TestCommandLog(t *testing.T) {
 	}
 	_ = press(t, a, viewLog, 'g') // oldest: the namespace scan
 	_ = press(t, a, viewLog, 'y')
-	if len(cb.copied) != 1 || cb.copied[0] != "sudo ss -tuanp" {
+	if len(cb.copied) != 1 || cb.copied[0] != "sudo ss -tuxanp" {
 		t.Errorf("copied %q", cb.copied)
 	}
-	if out := draw(t, g); !strings.Contains(out, "copied (fake): sudo ss -tuanp") {
+	if out := draw(t, g); !strings.Contains(out, "copied (fake): sudo ss -tuxanp") {
 		t.Errorf("no confirmation in the status bar:\n%s", out)
 	}
 	if a.log.follow {

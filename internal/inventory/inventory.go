@@ -48,7 +48,10 @@ type Entry struct {
 type Snapshot struct {
 	// Entries holds every socket in stable display order (see Less).
 	Entries []Entry
-	Procs   *procs.Table
+	// Unix holds the Unix sockets of every namespace (nil when the
+	// collector has no Unix source).
+	Unix  []UnixEntry
+	Procs *procs.Table
 	// Privileged reports whether portview runs as root.
 	Privileged bool
 	// Hidden counts sockets that have a file (inode != 0) but no visible
@@ -64,7 +67,9 @@ type Snapshot struct {
 type Collector struct {
 	Procs   ProcScanner
 	Sockets sockets.Source
-	Users   UserResolver
+	// Unix collects Unix sockets; nil skips them.
+	Unix  sockets.UnixSource
+	Users UserResolver
 	// Annotators run after sockets and processes are joined.
 	Annotators []Annotator
 	// Privileged overrides the root detection; nil means os.Geteuid() == 0.
@@ -76,6 +81,7 @@ func NewCollector() *Collector {
 	return &Collector{
 		Procs:   procs.Scanner{},
 		Sockets: sockets.ProcSource{},
+		Unix:    sockets.ProcSource{},
 		Users:   NewUserCache(),
 	}
 }
@@ -129,6 +135,7 @@ func (c *Collector) Collect(ctx context.Context) (*Snapshot, error) {
 		}
 		snap.Entries = append(snap.Entries, e)
 	}
+	c.collectUnix(ctx, targets, snap)
 	for _, a := range c.Annotators {
 		a.Annotate(ctx, snap)
 	}

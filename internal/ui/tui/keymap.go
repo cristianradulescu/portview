@@ -44,6 +44,12 @@ func (k *Keymap) Bindings() []Binding { return k.bindings }
 func (k *Keymap) Apply(g *gocui.Gui) error {
 	for _, b := range k.bindings {
 		h := b.Handler
+		if h == nil {
+			if len(b.Keys) > 0 {
+				return fmt.Errorf("binding %v on view %q has no handler", b.Keys, b.View)
+			}
+			continue // a status bar hint only
+		}
 		for _, key := range b.Keys {
 			if err := g.SetKeybinding(b.View, key, b.Mod, func(*gocui.Gui, *gocui.View) error { return h() }); err != nil {
 				return fmt.Errorf("binding %v on view %q: %w", key, b.View, err)

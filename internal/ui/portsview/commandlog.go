@@ -217,8 +217,11 @@ func (a *App) copyText(text string) {
 // the list's ss command, then the selected socket's.
 func (a *App) equivalentCommands() []commands.Command {
 	env := a.cmdEnv()
-	if a.tab == tabEvents {
+	switch a.tab {
+	case tabEvents:
 		return eventCommands(a.model.Filter(), env)
+	case tabUnix:
+		return a.unixCommands(env)
 	}
 	out := []commands.Command{commands.View(a.model.Filter(), env)}
 	if e := a.model.Selected(); e != nil {

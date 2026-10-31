@@ -28,6 +28,7 @@ const (
 	viewLog     = "log"
 	viewInspect = "inspect"
 	viewEvents  = "events"
+	viewUnix    = "unix"
 )
 
 // logMinHeight is the height (in rows) below which the command log is
@@ -71,6 +72,12 @@ type Options struct {
 	// Cmdline reads a process's command line for the event log;
 	// defaults to procs.Scanner{}.Cmdline.
 	Cmdline func(pid int) string
+	// ReadUnixRaw finds a Unix socket's line in /proc/net/unix; defaults
+	// to explain.ReadUnix.
+	ReadUnixRaw func(path string, inode uint64) (*explain.Report, error)
+	// UnixAccess explains who may connect to a socket file; defaults to
+	// explain.UnixAccess.
+	UnixAccess func(path string, euid int, groups []int, userName, groupName func(int) string) explain.Access
 }
 
 // App is the portview TUI.
@@ -109,6 +116,7 @@ type App struct {
 	// tab is what the left panel shows; ev is the event history.
 	tab int
 	ev  eventLog
+	ux  unixList
 
 	// details of processes read during the current snapshot, by PID;
 	// cleared on every refresh so they never get older than one interval.
@@ -118,6 +126,8 @@ type App struct {
 	detailsOrigin int
 	detailsKey    inventory.Key
 	detailsMax    int
+	// detailsUnixKey resets the scroll when the Unix selection changes.
+	detailsUnixKey unixKey
 
 	refreshed  time.Time
 	refreshReq chan struct{}
@@ -177,6 +187,12 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 	if opts.Cmdline == nil {
 		opts.Cmdline = procs.Scanner{}.Cmdline
 	}
+	if opts.ReadUnixRaw == nil {
+		opts.ReadUnixRaw = explain.ReadUnix
+	}
+	if opts.UnixAccess == nil {
+		opts.UnixAccess = explain.UnixAccess
+	}
 	a := &App{
 		opts:       opts,
 		g:          g,
@@ -188,6 +204,7 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 		log:        newCommandLog(),
 		hz:         procs.Scanner{}.ClockTicks(),
 		ev:         newEventLog(),
+		ux:         newUnixList(),
 	}
 	a.async = func(work func() func() error) {
 		go func() {
@@ -270,7 +287,11 @@ func (a *App) selectedDetails() (*procs.Details, error) {
 	if e == nil || e.Primary == nil {
 		return nil, nil
 	}
-	pid := e.Primary.PID
+	return a.detailsFor(e.Primary.PID)
+}
+
+// detailsFor reads a process's details at most once per snapshot.
+func (a *App) detailsFor(pid int) (*procs.Details, error) {
 	r, ok := a.details[pid]
 	if !ok {
 		r.d, r.err = a.opts.Details(pid)
@@ -304,16 +325,20 @@ func (a *App) layout(g *gocui.Gui) error {
 		listX1 = maxX - min(64, maxX*2/5) - 1
 	}
 
-	// The left panel shows the sockets or the events tab; only one of
-	// the two views exists at a time.
-	left, other := viewList, viewEvents
-	if a.tab == tabEvents {
-		left, other = viewEvents, viewList
-	}
+	// The left panel shows one tab; only that tab's view exists.
+	left := tabViews[a.tab]
 	cv := g.CurrentView()
-	hadFocus := cv == nil || cv.Name() == other || cv.Name() == left
-	if err := tui.DeleteView(g, other); err != nil {
-		return err
+	hadFocus := cv == nil || cv.Name() == left
+	for _, other := range tabViews {
+		if other == left {
+			continue
+		}
+		if cv != nil && cv.Name() == other {
+			hadFocus = true
+		}
+		if err := tui.DeleteView(g, other); err != nil {
+			return err
+		}
 	}
 	list, created, err := tui.SetView(g, left, tui.Rect{X0: 0, Y0: 0, X1: listX1, Y1: bottom})
 	if err != nil {
@@ -337,9 +362,12 @@ func (a *App) layout(g *gocui.Gui) error {
 			return err
 		}
 	}
-	if a.tab == tabEvents {
+	switch a.tab {
+	case tabEvents:
 		a.renderEvents(list)
-	} else {
+	case tabUnix:
+		a.renderUnix(list)
+	default:
 		a.renderList(list)
 	}
 
@@ -434,14 +462,23 @@ func (a *App) renderList(v *gocui.View) {
 }
 
 func (a *App) renderDetails(v *gocui.View) {
-	if a.tab == tabEvents {
-		w, _ := v.InnerSize()
+	if a.tab != tabSockets {
+		w, h := v.InnerSize()
 		v.Clear()
-		v.SetOrigin(0, 0)
-		v.WriteString(a.renderEventDetails(w))
+		if a.tab == tabEvents {
+			v.WriteString(a.renderEventDetails(w))
+		} else {
+			if a.ux.sel != a.detailsUnixKey {
+				a.detailsUnixKey, a.detailsOrigin = a.ux.sel, 0
+			}
+			v.WriteString(a.renderUnixDetails(w))
+		}
 		if a.model.Snapshot() != nil {
 			v.WriteString("\n" + renderCommands(a.equivalentCommands(), w))
 		}
+		a.detailsMax = max(0, v.ViewLinesHeight()-h)
+		a.detailsOrigin = min(a.detailsOrigin, a.detailsMax)
+		v.SetOrigin(0, a.detailsOrigin)
 		return
 	}
 	e := a.model.Selected()

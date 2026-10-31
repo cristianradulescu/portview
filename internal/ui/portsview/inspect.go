@@ -26,6 +26,9 @@ func defaultReadRaw(users inventory.UserResolver) func(string, sockets.Socket) (
 
 // openInspect shows the selected socket's raw kernel line, field by field.
 func (a *App) openInspect() error {
+	if a.tab == tabUnix {
+		return a.openInspectUnix()
+	}
 	e := a.model.Selected()
 	if e == nil {
 		return nil
@@ -41,20 +44,20 @@ func (a *App) openInspect() error {
 		Cmd:  commands.RawLine(e, leader),
 		Err:  err,
 	})
+	title := fmt.Sprintf("%s %s %s", e.Netid(), sockets.FormatAddrPort(e.Local), e.State)
+	if !e.Listening() {
+		title = fmt.Sprintf("%s %s → %s %s", e.Netid(), sockets.FormatAddrPort(e.Local), sockets.FormatAddrPort(e.Remote), e.State)
+	}
 	maxX, _ := a.g.Size()
-	a.inspect.Open(renderInspect(e, r, err, commands.RawLine(e, leader), min(inspectWidth, maxX-6)))
+	a.inspect.Open(renderInspect(title, r, err, commands.RawLine(e, leader), min(inspectWidth, maxX-6)))
 	return a.layout(a.g)
 }
 
 // renderInspect lays out a report: the raw lines, then each field with
 // its meaning wrapped below it.
-func renderInspect(e *inventory.Entry, r *explain.Report, err error, cmd string, width int) string {
+func renderInspect(title string, r *explain.Report, err error, cmd string, width int) string {
 	var sb strings.Builder
 	line := func(s string) { sb.WriteString(s + "\n") }
-	title := fmt.Sprintf("%s %s %s", e.Netid(), sockets.FormatAddrPort(e.Local), e.State)
-	if !e.Listening() {
-		title = fmt.Sprintf("%s %s → %s %s", e.Netid(), sockets.FormatAddrPort(e.Local), sockets.FormatAddrPort(e.Remote), e.State)
-	}
 	if err != nil {
 		line(tui.Bold(title))
 		line("")
@@ -91,9 +94,15 @@ func renderInspect(e *inventory.Entry, r *explain.Report, err error, cmd string,
 		}
 	}
 	line("")
-	for _, l := range tui.WrapHanging("Names in parentheses are not in the file's header; they follow the "+
-		"kernel's source (net/ipv4/tcp_ipv4.c and udp.c). Yellow marks values worth a look.", width, "") {
-		line(tui.Dim(l))
+	if strings.Contains(r.Path, "/unix") {
+		for _, l := range tui.WrapHanging("The layout follows the kernel's source (net/unix/af_unix.c).", width, "") {
+			line(tui.Dim(l))
+		}
+	} else {
+		for _, l := range tui.WrapHanging("Names in parentheses are not in the file's header; they follow the "+
+			"kernel's source (net/ipv4/tcp_ipv4.c and udp.c). Yellow marks values worth a look.", width, "") {
+			line(tui.Dim(l))
+		}
 	}
 	line("")
 	line(tui.Dim("The same line from a shell:"))

@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listeners) the command line recorded at the time; `Enter` jumps to a
   socket that is still open. The selection follows new events or stays
   put.
+- Unix tab: Unix domain sockets of every network namespace from
+  `/proc/net/unix`, with type, state, path (file, abstract or unnamed) and
+  owner. The details pane explains the type, state and kind of name, and
+  for socket files their permissions and whether you can connect; the
+  process section is the same as for IP sockets. `i` explains the raw
+  line, and the equivalent commands cover `ss -x`, `ls -l` and the
+  kernel table.
 
 ### Fixed
 

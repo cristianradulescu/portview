@@ -69,17 +69,36 @@ func (a *App) registerKeys() {
 	// The events tab shares the filter and general keys of the list.
 	shared := map[any]bool{'/': true, gocui.KeyEsc: true, 'l': true, 'e': true, 'a': true, 't': true, 'u': true,
 		'4': true, '6': true, gocui.KeyTab: true, 'y': true, 'r': true, '?': true, 'q': true}
+	ipOnly := map[any]bool{'t': true, 'u': true, '4': true, '6': true}
 	for _, b := range a.keys.Bindings() {
-		if b.View == viewList && len(b.Keys) > 0 && shared[b.Keys[0]] {
-			b.View, b.Label, b.Description = viewEvents, "", "" // listed once in the help
-			a.keys.Add(b)
+		if b.View != viewList || len(b.Keys) == 0 || !shared[b.Keys[0]] {
+			continue
+		}
+		b.Label, b.Description = "", "" // listed once in the help
+		ev := b
+		ev.View = viewEvents
+		a.keys.Add(ev)
+		if !ipOnly[b.Keys[0]] {
+			ux := b
+			ux.View = viewUnix
+			a.keys.Add(ux)
 		}
 	}
 	const evSec = "Events tab"
 	a.keys.Add(
-		tui.Binding{View: viewList, Keys: []any{']', '['}, Handler: func() error { return a.switchTab(tabEvents) },
-			Label: "[ ]", Description: "switch between the Sockets and Events tabs", Section: nav},
-		tui.Binding{View: viewEvents, Keys: []any{']', '['}, Handler: func() error { return a.switchTab(tabSockets) }, Hint: "[ ] sockets"},
+		tui.Binding{View: "", Keys: []any{']'}, Handler: func() error { return a.cycleTab(1) },
+			Label: "[ ]", Description: "previous / next tab: Sockets, Unix, Events", Section: nav},
+		tui.Binding{View: "", Keys: []any{'['}, Handler: func() error { return a.cycleTab(-1) }},
+		tui.Binding{View: viewEvents, Hint: "[ ] tabs"}, // hint only: the keys are global
+		tui.Binding{View: viewUnix, Keys: []any{'j', gocui.KeyArrowDown}, Handler: do(func() { a.moveUnix(1) }),
+			Label: "j/k", Description: "next / previous Unix socket", Section: "Unix tab"},
+		tui.Binding{View: viewUnix, Keys: []any{'k', gocui.KeyArrowUp}, Handler: do(func() { a.moveUnix(-1) })},
+		tui.Binding{View: viewUnix, Keys: []any{gocui.KeyPgdn, gocui.KeyCtrlD}, Handler: do(func() { a.moveUnix(a.ux.height - 1) })},
+		tui.Binding{View: viewUnix, Keys: []any{gocui.KeyPgup, gocui.KeyCtrlU}, Handler: do(func() { a.moveUnix(1 - a.ux.height) })},
+		tui.Binding{View: viewUnix, Keys: []any{'g', gocui.KeyHome}, Handler: do(func() { a.moveUnix(-1 << 30) })},
+		tui.Binding{View: viewUnix, Keys: []any{'G', gocui.KeyEnd}, Handler: do(func() { a.moveUnix(1 << 30) })},
+		tui.Binding{View: viewUnix, Keys: []any{'i'}, Handler: a.openInspect, Hint: "i inspect"},
+		tui.Binding{View: viewUnix, Hint: "[ ] tabs"}, // hint only: the keys are global
 		tui.Binding{View: viewEvents, Keys: []any{'j', gocui.KeyArrowDown}, Handler: do(func() { a.moveEvent(1) }),
 			Label: "j/k", Description: "next / previous event (newest first)", Section: evSec},
 		tui.Binding{View: viewEvents, Keys: []any{'k', gocui.KeyArrowUp}, Handler: do(func() { a.moveEvent(-1) })},
@@ -147,7 +166,7 @@ func quit() error { return gocui.ErrQuit }
 
 func helpText(k *tui.Keymap) string {
 	var sb strings.Builder
-	sb.WriteString(k.Help(viewList, viewEvents, viewDetails, viewLog, viewDialog, ""))
+	sb.WriteString(k.Help(viewList, viewUnix, viewEvents, viewDetails, viewLog, viewDialog, ""))
 	sb.WriteString("\n" + tui.Bold("Exposure") + "\n")
 	for _, x := range []inventory.Exposure{inventory.ExposureAll, inventory.ExposureInterface, inventory.ExposureLoopback, inventory.ExposureNamespace} {
 		sb.WriteString("  " + tui.Color(tui.PadRight(x.String(), 9), exposureColor(x)) + exposureDescription(x) + "\n")

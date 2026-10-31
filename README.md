@@ -104,7 +104,7 @@ in bold.
 | `Tab` | focus the details pane (`j`/`k`, `PgUp`/`PgDn` scroll), then the command log; `Esc` goes back |
 | `y` | copy one of the equivalent commands (see [Equivalent commands](#equivalent-commands)) |
 | `i` | inspect the socket's raw kernel line, every field explained (see [Kernel view](#kernel-view)) |
-| `[` / `]` | switch between the Sockets and Events tabs (see [Events](#events)) |
+| `[` / `]` | previous / next tab: Sockets, Unix (see [Unix sockets](#unix-sockets)), Events (see [Events](#events)) |
 | `Enter` | in the Events tab: show the event's socket in the list, if it is still open |
 | `x` | stop what holds the selected socket (see [Stopping a process](#stopping-a-process)) |
 | `r` | refresh now |
@@ -118,6 +118,30 @@ all of them.
 
 Exposure colors: **red** means all interfaces, **yellow** one interface,
 **green** loopback only, and **cyan** another network namespace.
+
+### Unix sockets
+
+The Unix tab lists Unix domain sockets, the local IPC endpoints behind
+`/run/docker.sock`, D-Bus, systemd, X11/Wayland and most desktop
+services, from `/proc/net/unix` of every network namespace. Columns: type
+(`stream`, `dgram`, `seqpacket`), state, path, PID, process and user.
+Listening sockets are shown by default, as with `ss -xl`; `a` adds the
+unnamed ends of connections (a desktop has hundreds), and `/` matches
+paths, processes, PIDs and inodes. `t`/`u`/`4`/`6` do not apply here.
+
+Paths are files (`/run/docker.sock`), abstract names (`@/tmp/.X11-unix/X0`,
+shown in magenta: they exist only in the kernel, so there are no file
+permissions and anyone in the network namespace can connect), or none
+(one end of a connection or socketpair). For a socket file the details
+pane shows its mode and owner and whether you can connect, and why
+(`srw-rw---- root:docker`: you are in group docker), or that the file was
+deleted after binding. Sockets in another network namespace are shown in
+cyan.
+
+`/proc/net/unix` does not record the socket's owner or its peer: the
+owner comes from the processes holding it (`?` without root for other
+users' processes), and the peer of an unnamed socket is only available
+through netlink (`ss -xp` shows it). `i` explains the raw line.
 
 ### Events
 
