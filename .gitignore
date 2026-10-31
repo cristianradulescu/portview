@@ -1,0 +1,21 @@
+# Build output
+/bin/
+/dist/
+/portview
+
+# Test / coverage artifacts
+*.test
+*.out
+coverage.*
+
+# Go workspace files (local only)
+go.work
+go.work.sum
+
+# Editors / OS
+.nvim/
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
