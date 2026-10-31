@@ -9,6 +9,7 @@ import (
 	"github.com/jesseduffield/gocui"
 
 	"github.com/cristianradulescu/portview/internal/inventory"
+	"github.com/cristianradulescu/portview/internal/procs"
 	"github.com/cristianradulescu/portview/internal/sockets"
 	"github.com/cristianradulescu/portview/internal/ui/tui"
 )
@@ -34,6 +35,10 @@ type Collector interface {
 // Options configure the TUI.
 type Options struct {
 	Collector Collector
+	// Details reads details of one process; defaults to procs.Scanner{}.
+	Details func(pid int) (*procs.Details, error)
+	// Users resolves UIDs to names; defaults to a new inventory.UserCache.
+	Users inventory.UserResolver
 	// Interval between automatic refreshes.
 	Interval time.Duration
 	// Filter is the initial filter.
@@ -49,6 +54,15 @@ type App struct {
 
 	prompt *tui.Prompt
 	help   *tui.Popup
+
+	// details of processes read during the current snapshot, by PID;
+	// cleared on every refresh so they never get older than one interval.
+	details map[int]detailsResult
+	// detailsOrigin is the scroll offset of the details pane, reset when
+	// the selection changes.
+	detailsOrigin int
+	detailsKey    inventory.Key
+	detailsMax    int
 
 	refreshed  time.Time
 	refreshReq chan struct{}
@@ -85,10 +99,17 @@ func newApp(g *gocui.Gui, opts Options) (*App, error) {
 	if opts.Interval <= 0 {
 		opts.Interval = 2 * time.Second
 	}
+	if opts.Details == nil {
+		opts.Details = procs.Scanner{}.Details
+	}
+	if opts.Users == nil {
+		opts.Users = inventory.NewUserCache()
+	}
 	a := &App{
 		opts:       opts,
 		g:          g,
 		model:      NewModel(opts.Filter),
+		details:    make(map[int]detailsResult),
 		refreshReq: make(chan struct{}, 1),
 	}
 	a.prompt = &tui.Prompt{
@@ -146,6 +167,28 @@ func (a *App) apply(snap *inventory.Snapshot, err error) {
 	}
 	a.model.SetSnapshot(snap)
 	a.refreshed = snap.Taken
+	clear(a.details)
+}
+
+type detailsResult struct {
+	d   *procs.Details
+	err error
+}
+
+// selectedDetails returns the details of the selected socket's primary
+// owner, reading them at most once per snapshot.
+func (a *App) selectedDetails() (*procs.Details, error) {
+	e := a.model.Selected()
+	if e == nil || e.Primary == nil {
+		return nil, nil
+	}
+	pid := e.Primary.PID
+	r, ok := a.details[pid]
+	if !ok {
+		r.d, r.err = a.opts.Details(pid)
+		a.details[pid] = r
+	}
+	return r.d, r.err
 }
 
 func (a *App) requestRefresh() {
@@ -191,12 +234,17 @@ func (a *App) layout(g *gocui.Gui) error {
 		}
 		if created {
 			d.Title = " Details "
-			d.Wrap = true
 		}
-		d.Clear()
-		d.WriteString(renderDetails(a.model))
-	} else if err := tui.DeleteView(g, viewDetails); err != nil {
-		return err
+		a.renderDetails(d)
+	} else {
+		if g.CurrentView() != nil && g.CurrentView().Name() == viewDetails {
+			if _, err := g.SetCurrentView(viewList); err != nil {
+				return err
+			}
+		}
+		if err := tui.DeleteView(g, viewDetails); err != nil {
+			return err
+		}
 	}
 
 	status, created, err := tui.SetView(g, viewStatus, tui.Rect{X0: 0, Y0: maxY - 2, X1: maxX, Y1: maxY})
@@ -207,7 +255,11 @@ func (a *App) layout(g *gocui.Gui) error {
 		status.Frame = false
 	}
 	status.Clear()
-	status.WriteString(tui.JoinStatus(statusLeft(a.model, a.refreshed), a.keys.Hints(viewList), maxX-1))
+	focus := viewList
+	if cv := g.CurrentView(); cv != nil {
+		focus = cv.Name()
+	}
+	status.WriteString(tui.JoinStatus(statusLeft(a.model, a.refreshed), a.keys.Hints(focus), maxX-1))
 
 	if err := a.prompt.Layout(g, tui.Rect{X0: 0, Y0: bottom - 2, X1: listX1, Y1: bottom}); err != nil {
 		return err
@@ -235,6 +287,39 @@ func (a *App) renderList(v *gocui.View) {
 	} else {
 		v.SetCursor(0, 0)
 	}
+}
+
+func (a *App) renderDetails(v *gocui.View) {
+	e := a.model.Selected()
+	if e != nil && e.Key() != a.detailsKey {
+		a.detailsKey, a.detailsOrigin = e.Key(), 0
+	}
+	in := detailsInput{entry: e, snap: a.model.Snapshot(), users: a.opts.Users, now: time.Now()}
+	if in.snap != nil {
+		in.privileged = in.snap.Privileged
+	}
+	in.proc, in.procErr = a.selectedDetails()
+	in.width, _ = v.InnerSize()
+	v.Clear()
+	v.WriteString(renderDetails(in))
+	_, h := v.InnerSize()
+	a.detailsMax = max(0, v.ViewLinesHeight()-h)
+	a.detailsOrigin = min(a.detailsOrigin, a.detailsMax)
+	v.SetOrigin(0, a.detailsOrigin)
+}
+
+func (a *App) scrollDetails(delta int) {
+	a.detailsOrigin = max(0, min(a.detailsOrigin+delta, a.detailsMax))
+}
+
+func (a *App) focus(view string) error {
+	if _, err := a.g.SetCurrentView(view); err != nil {
+		if tui.IsUnknownView(err) {
+			return nil // e.g. details hidden on a narrow screen
+		}
+		return err
+	}
+	return nil
 }
 
 // --- actions -------------------------------------------------------------

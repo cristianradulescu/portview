@@ -86,7 +86,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if cfg.dump {
 		err = dump(ctx, collector, filter, stdout, stderr)
 	} else {
-		err = portsview.Run(ctx, portsview.Options{Collector: collector, Interval: cfg.interval, Filter: filter})
+		err = portsview.Run(ctx, portsview.Options{Collector: collector, Users: collector.Users, Interval: cfg.interval, Filter: filter})
 	}
 	if err != nil {
 		fmt.Fprintln(stderr, "portview:", err)

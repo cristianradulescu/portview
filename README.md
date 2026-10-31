@@ -4,8 +4,8 @@ A terminal UI for Linux that lists open TCP/UDP sockets, shows the process
 behind each one, and lets you stop that process. It works like lazygit, but
 for ports.
 
-> **Status:** early development. The read-only TUI and `--dump` work. The full
-> process details pane, Docker integration and the kill action are still to come.
+> **Status:** early development. The read-only TUI with process details and
+> `--dump` work. Docker name resolution and the kill action are still to come.
 
 ## Planned features (v1)
 
@@ -52,7 +52,19 @@ portview --no-docker                  # do not contact the Docker daemon
 
 The socket list is on the left and details for the selected socket are on
 the right. The details pane is hidden when the terminal is narrower than 110
-columns. The status bar at the bottom shows the active filters, the row
+columns. It shows:
+
+- **The socket:** endpoint, state, exposure, network namespace, inode and queue sizes.
+- **The owning process** (the primary one when several share the socket):
+  - full command line, executable, working directory, user, start time and parent;
+  - its systemd unit, from `/proc/<pid>/cgroup`;
+  - its container ID, when it runs in Docker or Podman.
+- **All processes sharing the socket**, such as the workers of a forking server.
+- **The process's other sockets.**
+
+Process details are read only for the selected process, at most once per
+refresh. Without root, the executable and working directory of other users'
+processes show as `?`. The status bar at the bottom shows the active filters, the row
 count, a hint when some owners are hidden and the time of the last refresh.
 
 The list refreshes every `--interval`. The selected socket stays selected
@@ -70,6 +82,7 @@ in bold.
 | `l` / `e` / `a` | listening / established / all sockets |
 | `t` / `u` | TCP only / UDP only (press again to show both) |
 | `4` / `6` | IPv4 only / IPv6 only (press again to show both) |
+| `Tab` | focus the details pane (`j`/`k`, `PgUp`/`PgDn` scroll; `Tab`/`Esc` go back) |
 | `r` | refresh now |
 | `?` | help |
 | `q`, `Ctrl-c` | quit |

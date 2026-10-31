@@ -3,6 +3,7 @@ package portsview
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -14,19 +15,49 @@ import (
 	"github.com/cristianradulescu/portview/internal/sockets"
 )
 
+type testUsers struct{}
+
+func (testUsers) Name(uid int) string {
+	switch uid {
+	case 0:
+		return "root"
+	case 33:
+		return "www-data"
+	}
+	return "?"
+}
+
+func fakeDetails(pid int) (*procs.Details, error) {
+	if pid != 100 {
+		return nil, procs.ErrExited
+	}
+	unit, _ := procs.ParseCgroupPath("/system.slice/nginx.service")
+	return &procs.Details{
+		PID: 100, Comm: "nginx", PPID: 1, ParentComm: "systemd", UID: 0, Threads: 1,
+		Cmdline: []string{"nginx: master process /usr/sbin/nginx", "-g", "daemon on;"},
+		Exe:     "/usr/sbin/nginx", Cwd: "/", State: "S (sleeping)",
+		StartTime: time.Now().Add(-3*time.Hour - 12*time.Minute - 30*time.Second),
+		Unit:      unit,
+	}, nil
+}
+
 type staticCollector struct{ snap *inventory.Snapshot }
 
 func (c staticCollector) Collect(context.Context) (*inventory.Snapshot, error) { return c.snap, nil }
 
 func testSnapshot() *inventory.Snapshot {
 	nginx := &procs.Process{PID: 100, PPID: 1, Comm: "nginx", Loaded: true, Inspectable: true}
-	worker := &procs.Process{PID: 101, PPID: 100, Comm: "nginx", Loaded: true, Inspectable: true}
+	worker := &procs.Process{PID: 101, PPID: 100, Comm: "nginx", UID: 33, Loaded: true, Inspectable: true}
 	web := listen(sockets.TCP, 80)
 	web.Owners, web.Primary = []*procs.Process{nginx, worker}, nginx
+	web6 := listen(sockets.TCP, 80)
+	web6.Family, web6.Inode = sockets.IPv6, 9999
+	web6.Local = netip.MustParseAddrPort("[::]:80")
+	web6.Owners, web6.Primary = []*procs.Process{nginx, worker}, nginx
 	dns := listen(sockets.UDP, 53)
 	dns.Exposure = inventory.ExposureLoopback
 	hidden := listen(sockets.TCP, 631)
-	snap := snapshot(web, hidden, dns)
+	snap := snapshot(web, web6, hidden, dns)
 	snap.Hidden = 1
 	snap.Taken = time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	return snap
@@ -39,7 +70,12 @@ func newHeadless(t *testing.T, w, h int) (*App, *gocui.Gui) {
 		t.Fatal(err)
 	}
 	t.Cleanup(g.Close)
-	a, err := newApp(g, Options{Collector: staticCollector{testSnapshot()}, Interval: time.Hour})
+	a, err := newApp(g, Options{
+		Collector: staticCollector{testSnapshot()},
+		Interval:  time.Hour,
+		Details:   fakeDetails,
+		Users:     testUsers{},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,8 +117,8 @@ func TestAppRendersAndFilters(t *testing.T) {
 	a.apply(testSnapshot(), nil)
 	out := draw(t, g)
 	for _, want := range []string{
-		"Sockets 3/3", "PROTO", "EXPOSURE", "0.0.0.0:80", "100+1", "nginx", "0.0.0.0:631", "udp",
-		"Details", "primary", // details pane for the selected (first) row
+		"Sockets 4/4", "PROTO", "EXPOSURE", "0.0.0.0:80", "100+1", "nginx", "0.0.0.0:631", "udp",
+		"Details",
 		"listening", "1 owners hidden", "q quit",
 	} {
 		if !strings.Contains(out, want) {
@@ -94,10 +130,11 @@ func TestAppRendersAndFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = draw(t, g)
-	if !strings.Contains(out, "Sockets 2/3") || strings.Contains(out, "0.0.0.0:53 ") {
+	if !strings.Contains(out, "Sockets 3/4") || strings.Contains(out, "0.0.0.0:53 ") {
 		t.Errorf("after t (TCP only):\n%s", out)
 	}
 	_ = press(t, a, viewList, 't')
+	_ = press(t, a, viewList, 'j')
 	_ = press(t, a, viewList, 'j')
 	if e := a.model.Selected(); e == nil || e.Local.Port() != 631 {
 		t.Errorf("j should select the second row, got %+v", e)
@@ -120,7 +157,7 @@ func TestAppFilterPromptAndHelp(t *testing.T) {
 	}
 	a.prompt.OnChange("nginx") // what the editor calls on typing
 	out := draw(t, g)
-	if !strings.Contains(out, "Sockets 1/3") || !strings.Contains(out, "/nginx") {
+	if !strings.Contains(out, "Sockets 2/4") || !strings.Contains(out, "/nginx") {
 		t.Errorf("live filter:\n%s", out)
 	}
 	_ = press(t, a, viewFilter, gocui.KeyEnter)
@@ -167,5 +204,70 @@ func TestAppKeepsDataOnRefreshError(t *testing.T) {
 	out := draw(t, g)
 	if !strings.Contains(out, "refresh failed: boom") || !strings.Contains(out, "0.0.0.0:80") {
 		t.Errorf("error state:\n%s", out)
+	}
+}
+
+func TestAppDetailsPane(t *testing.T) {
+	a, g := newHeadless(t, 170, 50)
+	a.apply(testSnapshot(), nil)
+	out := draw(t, g)
+	for _, want := range []string{
+		"Process nginx · PID 100",
+		"'nginx: master process /usr/sbin/nginx' -g 'daemon", "             on;'",
+		"/usr/sbin/nginx", "root (uid 0)", "3h12m ago", "1 systemd",
+		"nginx.service (systemd service)",
+		"Shared by 2 processes", "www-data", "primary",
+		"Other sockets of PID 100 (1)", "[::]:80",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("details missing %q:\n%s", want, out)
+		}
+	}
+
+	// Details are read once per snapshot, not on every redraw.
+	calls := 0
+	a.opts.Details = func(pid int) (*procs.Details, error) { calls++; return fakeDetails(pid) }
+	clear(a.details)
+	draw(t, g)
+	draw(t, g)
+	if calls != 1 {
+		t.Errorf("details read %d times, want 1", calls)
+	}
+	a.apply(testSnapshot(), nil)
+	draw(t, g)
+	if calls != 2 {
+		t.Errorf("details should be re-read after a refresh, calls = %d", calls)
+	}
+
+	// Tab focuses the pane, j scrolls it, Esc goes back.
+	_ = press(t, a, viewList, gocui.KeyTab)
+	draw(t, g)
+	if v := g.CurrentView(); v == nil || v.Name() != viewDetails {
+		t.Fatalf("Tab should focus details, got %v", v)
+	}
+	a.detailsMax = 5
+	_ = press(t, a, viewDetails, 'j')
+	if a.detailsOrigin != 1 {
+		t.Errorf("detailsOrigin = %d", a.detailsOrigin)
+	}
+	_ = press(t, a, viewDetails, gocui.KeyEsc)
+	draw(t, g)
+	if v := g.CurrentView(); v == nil || v.Name() != viewList {
+		t.Fatalf("Esc should return to the list")
+	}
+	// Selecting another socket resets the scroll.
+	_ = press(t, a, viewList, 'j')
+	draw(t, g)
+	if a.detailsOrigin != 0 {
+		t.Errorf("scroll not reset on selection change: %d", a.detailsOrigin)
+	}
+}
+
+func TestAppDetailsExitedProcess(t *testing.T) {
+	a, g := newHeadless(t, 170, 40)
+	a.opts.Details = func(int) (*procs.Details, error) { return nil, procs.ErrExited }
+	a.apply(testSnapshot(), nil)
+	if out := draw(t, g); !strings.Contains(out, "process exited") {
+		t.Errorf("exited process:\n%s", out)
 	}
 }

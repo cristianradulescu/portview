@@ -128,3 +128,28 @@ func TestCentered(t *testing.T) {
 		t.Errorf("Centered shrink = %+v", r)
 	}
 }
+
+func TestWrapHanging(t *testing.T) {
+	got := WrapHanging("nginx -g daemon on; master_process on;", 16, "    ")
+	want := []string{"nginx -g daemon", "    on;", "    master_proce", "    ss on;"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("WrapHanging = %q", got)
+	}
+	for _, l := range got {
+		if StringWidth(l) > 16 {
+			t.Errorf("line too wide: %q", l)
+		}
+	}
+	if got := WrapHanging("short", 16, "  "); len(got) != 1 || got[0] != "short" {
+		t.Errorf("short = %q", got)
+	}
+	long := WrapHanging("/a/very/long/path/without/any/spaces/at/all", 12, "  ")
+	for _, l := range long {
+		if StringWidth(l) > 12 {
+			t.Errorf("hard wrap too wide: %q", l)
+		}
+	}
+	if strings.ReplaceAll(strings.Join(long, ""), "  ", "") != "/a/very/long/path/without/any/spaces/at/all" {
+		t.Errorf("hard wrap lost text: %q", long)
+	}
+}

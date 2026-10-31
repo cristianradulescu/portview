@@ -193,7 +193,7 @@ func renderList(m *Model, width int) string {
 func exposureDescription(x inventory.Exposure) string {
 	switch x {
 	case inventory.ExposureAll:
-		return "all interfaces (reachable from the network unless firewalled)"
+		return "all interfaces (network-reachable)"
 	case inventory.ExposureInterface:
 		return "one interface address"
 	case inventory.ExposureLoopback:
@@ -203,55 +203,6 @@ func exposureDescription(x inventory.Exposure) string {
 	default:
 		return "n/a (not listening)"
 	}
-}
-
-// renderDetails is the details pane content for the selected entry.
-func renderDetails(m *Model) string {
-	e := m.Selected()
-	snap := m.Snapshot()
-	if e == nil || snap == nil {
-		return tui.Dim("nothing selected")
-	}
-	var sb strings.Builder
-	kv := func(k, v string) { fmt.Fprintf(&sb, "  %s %s\n", tui.Dim(tui.PadRight(k, 10)), v) }
-
-	sb.WriteString(tui.Bold("Socket") + "\n")
-	kv("Protocol", e.Netid())
-	kv("State", e.State.String())
-	kv("Local", tui.Color(sockets.FormatAddrPort(e.Local), exposureColor(e.Exposure)))
-	kv("Remote", sockets.FormatAddrPort(e.Remote))
-	kv("Exposure", tui.Color(exposureDescription(e.Exposure), exposureColor(e.Exposure)))
-	kv("Netns", snap.NetNSLabel(e.NetNS))
-	if e.Inode != 0 {
-		kv("Inode", fmt.Sprint(e.Inode))
-	}
-	kv("Queues", fmt.Sprintf("recv %d  send %d", e.RxQueue, e.TxQueue))
-
-	sb.WriteString("\n" + tui.Bold("Owners") + "\n")
-	switch {
-	case len(e.Owners) > 0:
-		for _, p := range e.Owners {
-			line := fmt.Sprintf("%-7d %-16s", p.PID, tui.Truncate(orQ(p.Comm), 16))
-			if p == e.Primary && len(e.Owners) > 1 {
-				line += tui.Color(" primary", tui.FgGreen)
-			}
-			sb.WriteString("  " + line + "\n")
-		}
-	case e.Inode == 0:
-		sb.WriteString(tui.Dim("  none (socket has no file, e.g. TIME-WAIT)") + "\n")
-	case snap.Privileged:
-		sb.WriteString(tui.Dim("  none (kernel socket)") + "\n")
-	default:
-		sb.WriteString(tui.Color("  unknown: owned by a process you cannot inspect.\n  Rerun with sudo to see it.", tui.FgYellow) + "\n")
-	}
-	return sb.String()
-}
-
-func orQ(s string) string {
-	if s == "" {
-		return "?"
-	}
-	return s
 }
 
 // statusLeft summarizes the filters, counts and refresh state.

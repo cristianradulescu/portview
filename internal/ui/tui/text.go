@@ -142,3 +142,56 @@ func JoinStatus(left string, right []string, width int) string {
 	}
 	return left
 }
+
+// WrapHanging wraps plain text to width cells. Continuation lines are
+// prefixed with indent (whose width is subtracted from them). It breaks at
+// spaces where possible and inside words otherwise.
+func WrapHanging(text string, width int, indent string) []string {
+	if width <= 0 || uniseg.StringWidth(text) <= width {
+		return []string{text}
+	}
+	var (
+		lines []string
+		cur   strings.Builder
+		curW  int
+		limit = width
+	)
+	flush := func() {
+		lines = append(lines, strings.TrimRight(cur.String(), " "))
+		cur.Reset()
+		curW = 0
+		limit = max(1, width-uniseg.StringWidth(indent))
+	}
+	for _, word := range strings.SplitAfter(text, " ") {
+		ww := uniseg.StringWidth(word)
+		if curW > 0 && curW+uniseg.StringWidth(strings.TrimRight(word, " ")) > limit {
+			flush()
+		}
+		for ww > limit-curW { // word longer than the remaining line
+			g := uniseg.NewGraphemes(word)
+			var head strings.Builder
+			hw := 0
+			for g.Next() && hw+g.Width() <= limit-curW {
+				head.WriteString(g.Str())
+				hw += g.Width()
+			}
+			if hw == 0 {
+				break
+			}
+			cur.WriteString(head.String())
+			curW += hw
+			word = word[head.Len():]
+			ww -= hw
+			flush()
+		}
+		cur.WriteString(word)
+		curW += ww
+	}
+	if cur.Len() > 0 {
+		lines = append(lines, strings.TrimRight(cur.String(), " "))
+	}
+	for i := 1; i < len(lines); i++ {
+		lines[i] = indent + lines[i]
+	}
+	return lines
+}
