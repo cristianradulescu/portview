@@ -3,12 +3,17 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
+
+	"github.com/cristianradulescu/portview/internal/inventory"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -19,20 +24,21 @@ type config struct {
 	interval time.Duration
 	noDocker bool
 	dump     bool
-	state    string
+	state    inventory.StateFilter
 	version  bool
 }
 
-var validStates = map[string]bool{"listen": true, "established": true, "all": true}
-
 func parseFlags(args []string, errOut io.Writer) (config, error) {
-	var cfg config
+	var (
+		cfg   config
+		state string
+	)
 	fs := flag.NewFlagSet("portview", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	fs.DurationVar(&cfg.interval, "interval", 2*time.Second, "auto-refresh interval (e.g. 2s, 500ms)")
 	fs.BoolVar(&cfg.noDocker, "no-docker", false, "do not query the Docker daemon for container names")
 	fs.BoolVar(&cfg.dump, "dump", false, "print sockets to stdout and exit instead of starting the TUI")
-	fs.StringVar(&cfg.state, "state", "listen", "socket state filter for --dump: listen, established or all")
+	fs.StringVar(&state, "state", "listen", "socket state filter for --dump: listen, established or all")
 	fs.BoolVar(&cfg.version, "version", false, "print version and exit")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: portview [flags]\n\nFlags:\n")
@@ -48,9 +54,11 @@ func parseFlags(args []string, errOut io.Writer) (config, error) {
 	if cfg.interval < 100*time.Millisecond {
 		return cfg, fmt.Errorf("--interval must be at least 100ms, got %s", cfg.interval)
 	}
-	if !validStates[cfg.state] {
-		return cfg, fmt.Errorf("--state must be one of listen, established, all; got %q", cfg.state)
+	st, ok := inventory.ParseStateFilter(state)
+	if !ok {
+		return cfg, fmt.Errorf("--state must be one of listen, established, all; got %q", state)
 	}
+	cfg.state = st
 	return cfg, nil
 }
 
@@ -69,8 +77,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "portview", version)
 		return 0
 	case cfg.dump:
-		fmt.Fprintln(stderr, "portview: --dump is not implemented yet")
-		return 1
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := dump(ctx, inventory.NewCollector(), inventory.Filter{State: cfg.state}, stdout, stderr); err != nil {
+			fmt.Fprintln(stderr, "portview:", err)
+			return 1
+		}
+		return 0
 	default:
 		fmt.Fprintln(stderr, "portview: the TUI is not implemented yet")
 		return 1

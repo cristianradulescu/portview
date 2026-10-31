@@ -4,6 +4,8 @@ import (
 	"io"
 	"testing"
 	"time"
+
+	"github.com/cristianradulescu/portview/internal/inventory"
 )
 
 func TestParseFlags(t *testing.T) {
@@ -13,11 +15,11 @@ func TestParseFlags(t *testing.T) {
 		want    config
 		wantErr bool
 	}{
-		{name: "defaults", args: nil, want: config{interval: 2 * time.Second, state: "listen"}},
+		{name: "defaults", args: nil, want: config{interval: 2 * time.Second, state: inventory.StateListening}},
 		{
 			name: "all flags",
 			args: []string{"--interval", "5s", "--no-docker", "--dump", "--state", "all"},
-			want: config{interval: 5 * time.Second, noDocker: true, dump: true, state: "all"},
+			want: config{interval: 5 * time.Second, noDocker: true, dump: true, state: inventory.StateAll},
 		},
 		{name: "interval too small", args: []string{"--interval", "10ms"}, wantErr: true},
 		{name: "bad state", args: []string{"--state", "closed"}, wantErr: true},
